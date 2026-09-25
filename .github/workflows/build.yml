@@ -28,6 +28,14 @@ jobs:
         TARGET_DIR=$(dirname $(find . -name "build.gradle.kts" | head -n 1))
         echo "Found app module at: $TARGET_DIR"
 
+        # Generate gradle.properties with AndroidX flags
+        cat << 'EOF' > gradle.properties
+        android.useAndroidX=true
+        android.enableJetifier=true
+        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+        EOF
+
+        # Generate settings.gradle.kts
         cat << 'EOF' > settings.gradle.kts
         pluginManagement {
             repositories {
@@ -47,6 +55,7 @@ jobs:
         include(":app")
         EOF
 
+        # Generate root build.gradle.kts
         cat << 'EOF' > build.gradle.kts
         plugins {
             id("com.android.application") version "8.5.2" apply false
@@ -56,7 +65,7 @@ jobs:
         }
         EOF
 
-        # Inject compose plugin into app module build.gradle.kts if missing
+        # Inject compose compiler plugin if missing in app module
         APP_BUILD_GRADLE="$TARGET_DIR/build.gradle.kts"
         if [ -f "$APP_BUILD_GRADLE" ]; then
           if ! grep -q "org.jetbrains.kotlin.plugin.compose" "$APP_BUILD_GRADLE"; then
@@ -64,6 +73,7 @@ jobs:
           fi
         fi
 
+        # Re-structure app folder if nested
         if [ "$TARGET_DIR" != "./app" ]; then
           echo "Restructuring from $TARGET_DIR to ./app"
           mkdir -p temp_app
@@ -72,6 +82,10 @@ jobs:
           mv temp_app app
         fi
 
+        # Ensure gradle.properties exists inside app folder as well
+        cp gradle.properties app/
+
+        # Generate Gradle wrapper
         gradle wrapper --gradle-version 8.7
 
     - name: Build Debug APK
