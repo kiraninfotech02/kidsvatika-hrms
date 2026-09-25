@@ -51,9 +51,18 @@ jobs:
         plugins {
             id("com.android.application") version "8.5.2" apply false
             id("org.jetbrains.kotlin.android") version "2.0.0" apply false
+            id("org.jetbrains.kotlin.plugin.compose") version "2.0.0" apply false
             id("com.google.devtools.ksp") version "2.0.0-1.0.24" apply false
         }
         EOF
+
+        # Inject compose plugin into app module build.gradle.kts if missing
+        APP_BUILD_GRADLE="$TARGET_DIR/build.gradle.kts"
+        if [ -f "$APP_BUILD_GRADLE" ]; then
+          if ! grep -q "org.jetbrains.kotlin.plugin.compose" "$APP_BUILD_GRADLE"; then
+            sed -i '/plugins {/a \    id("org.jetbrains.kotlin.plugin.compose")' "$APP_BUILD_GRADLE"
+          fi
+        fi
 
         if [ "$TARGET_DIR" != "./app" ]; then
           echo "Restructuring from $TARGET_DIR to ./app"
