@@ -23,19 +23,91 @@ jobs:
       run: |
         yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-    - name: Fix Project Root Structure
+    - name: Deep Scan & Auto-Heal Project Structure
       run: |
-        TARGET_DIR=$(dirname $(find . -name "build.gradle.kts" | head -n 1))
-        echo "Found app module at: $TARGET_DIR"
+        echo "=== Deep Scanning Repository Tree ==="
+        find . -maxdepth 3 -not -path '*/.*'
 
-        # Generate gradle.properties with AndroidX flags
+        # 1. Locate and consolidate app folder
+        APP_GRADLE_FILE=$(find . -name "build.gradle.kts" -o -name "build.gradle" | grep -v "^\./build.gradle" | head -n 1)
+        APP_DIR=$(dirname "$APP_GRADLE_FILE")
+        echo "Found app module root at: $APP_DIR"
+
+        if [ "$APP_DIR" != "./app" ] && [ -d "$APP_DIR" ]; then
+          mkdir -p unified_app
+          cp -r "$APP_DIR"/* unified_app/
+          rm -rf app
+          mv unified_app app
+        fi
+        mkdir -p app/src/main
+
+        # 2. Merge root src if present into app/src/main
+        if [ -d "./src" ]; then
+          echo "Merging root /src into app/src/main/..."
+          cp -r ./src/* app/src/main/
+        fi
+
+        # 3. Ensure AndroidManifest.xml exists with production components
+        if [ ! -f "app/src/main/AndroidManifest.xml" ]; then
+          echo "Injecting hardened AndroidManifest.xml..."
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+        <?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+            package="com.kidsvatika.hrms">
+
+            <uses-permission android:name="android.permission.INTERNET" />
+            <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+            <uses-permission android:name="android.permission.CAMERA" />
+            <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+            <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+            <uses-permission android:name="android.permission.VIBRATE" />
+            <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+            <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+            <application
+                android:allowBackup="false"
+                android:icon="@android:drawable/sym_def_app_icon"
+                android:label="Kids Vatika HRMS"
+                android:roundIcon="@android:drawable/sym_def_app_icon"
+                android:supportsRtl="true"
+                android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+                <activity
+                    android:name=".MainActivity"
+                    android:exported="true"
+                    android:screenOrientation="portrait">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+
+            </application>
+        </manifest>
+        EOF
+        fi
+
+        # 4. Generate fallback minimal strings & themes if missing
+        mkdir -p app/src/main/res/values
+        if [ ! -f "app/src/main/res/values/strings.xml" ]; then
+          cat << 'EOF' > app/src/main/res/values/strings.xml
+        <resources>
+            <string name="app_name">Kids Vatika HRMS</string>
+        </resources>
+        EOF
+        fi
+
+        # 5. Generate gradle.properties with AndroidX flags
         cat << 'EOF' > gradle.properties
         android.useAndroidX=true
         android.enableJetifier=true
         org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
         EOF
+        cp gradle.properties app/
 
-        # Generate settings.gradle.kts
+        # 6. Generate root settings.gradle.kts
         cat << 'EOF' > settings.gradle.kts
         pluginManagement {
             repositories {
@@ -55,7 +127,7 @@ jobs:
         include(":app")
         EOF
 
-        # Generate root build.gradle.kts
+        # 7. Generate root build.gradle.kts
         cat << 'EOF' > build.gradle.kts
         plugins {
             id("com.android.application") version "8.5.2" apply false
@@ -65,32 +137,19 @@ jobs:
         }
         EOF
 
-        # Inject compose compiler plugin if missing in app module
-        APP_BUILD_GRADLE="$TARGET_DIR/build.gradle.kts"
-        if [ -f "$APP_BUILD_GRADLE" ]; then
-          if ! grep -q "org.jetbrains.kotlin.plugin.compose" "$APP_BUILD_GRADLE"; then
-            sed -i '/plugins {/a \    id("org.jetbrains.kotlin.plugin.compose")' "$APP_BUILD_GRADLE"
+        # 8. Inject Compose Compiler plugin into app module build file if missing
+        if [ -f "app/build.gradle.kts" ]; then
+          if ! grep -q "org.jetbrains.kotlin.plugin.compose" "app/build.gradle.kts"; then
+            sed -i '/plugins {/a \    id("org.jetbrains.kotlin.plugin.compose")' "app/build.gradle.kts"
           fi
         fi
 
-        # Re-structure app folder if nested
-        if [ "$TARGET_DIR" != "./app" ]; then
-          echo "Restructuring from $TARGET_DIR to ./app"
-          mkdir -p temp_app
-          cp -r $TARGET_DIR/* temp_app/
-          rm -rf app
-          mv temp_app app
-        fi
-
-        # Ensure gradle.properties exists inside app folder as well
-        cp gradle.properties app/
-
-        # Generate Gradle wrapper
+        # 9. Ensure a valid Gradle Wrapper is initialized
         gradle wrapper --gradle-version 8.7
+        chmod +x ./gradlew
 
     - name: Build Debug APK
       run: |
-        chmod +x ./gradlew
         ./gradlew assembleDebug --no-daemon --stacktrace
 
     - name: Upload APK Artifact
