@@ -19,16 +19,15 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
 
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
+    - name: Accept Android Licenses
+      run: |
+        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
     - name: Fix Project Root Structure
       run: |
-        # Locate the real app module folder containing build.gradle.kts
         TARGET_DIR=$(dirname $(find . -name "build.gradle.kts" | head -n 1))
         echo "Found app module at: $TARGET_DIR"
 
-        # Create settings.gradle.kts at repository root with Google and MavenCentral repositories
         cat << 'EOF' > settings.gradle.kts
         pluginManagement {
             repositories {
@@ -48,7 +47,6 @@ jobs:
         include(":app")
         EOF
 
-        # Create root build.gradle.kts with Android application plugin declaration
         cat << 'EOF' > build.gradle.kts
         plugins {
             id("com.android.application") version "8.5.2" apply false
@@ -57,7 +55,6 @@ jobs:
         }
         EOF
 
-        # Ensure the app module is at ./app
         if [ "$TARGET_DIR" != "./app" ]; then
           echo "Restructuring from $TARGET_DIR to ./app"
           mkdir -p temp_app
@@ -66,7 +63,6 @@ jobs:
           mv temp_app app
         fi
 
-        # Generate Gradle wrapper if missing
         gradle wrapper --gradle-version 8.7
 
     - name: Build Debug APK
