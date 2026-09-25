@@ -19,29 +19,40 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
+    - name: Inspect Directory Structure
+      run: |
+        pwd
+        ls -la
+        ls -la app || true
 
-    - name: Check gradlew permissions
+    - name: Execute Android Build
       run: |
         if [ -f "./gradlew" ]; then
-          chmod +x gradlew
-        elif [ -f "./app/gradlew" ]; then
-          chmod +x app/gradlew
-        fi
-
-    - name: Build Debug APK
-      run: |
-        if [ -f "./gradlew" ]; then
+          chmod +x ./gradlew
           ./gradlew assembleDebug --stacktrace
         elif [ -f "./app/gradlew" ]; then
-          cd app && ./gradlew assembleDebug --stacktrace
-        else
+          cd app
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --stacktrace
+        elif [ -d "./app" ] && [ -f "./app/build.gradle" -o -f "./app/build.gradle.kts" ]; then
+          cd app
           gradle assembleDebug --stacktrace
+        else
+          echo "Looking for gradle build files..."
+          BUILD_DIR=$(dirname $(find . -maxdepth 3 -name "build.gradle*" | head -n 1))
+          if [ -n "$BUILD_DIR" ]; then
+            echo "Found build directory at $BUILD_DIR"
+            cd "$BUILD_DIR"
+            gradle assembleDebug --stacktrace
+          else
+            echo "No Gradle file found!"
+            exit 1
+          fi
         fi
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: KidsVatika-Debug-APK
-        path: "**/build/outputs/apk/debug/*.apk"
+        path: "**/build/outputs/apk/**/*.apk"
