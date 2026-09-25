@@ -19,40 +19,64 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
 
-    - name: Inspect Directory Structure
-      run: |
-        pwd
-        ls -la
-        ls -la app || true
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
 
-    - name: Execute Android Build
+    - name: Fix Project Root Structure
       run: |
-        if [ -f "./gradlew" ]; then
-          chmod +x ./gradlew
-          ./gradlew assembleDebug --stacktrace
-        elif [ -f "./app/gradlew" ]; then
-          cd app
-          chmod +x ./gradlew
-          ./gradlew assembleDebug --stacktrace
-        elif [ -d "./app" ] && [ -f "./app/build.gradle" -o -f "./app/build.gradle.kts" ]; then
-          cd app
-          gradle assembleDebug --stacktrace
-        else
-          echo "Looking for gradle build files..."
-          BUILD_DIR=$(dirname $(find . -maxdepth 3 -name "build.gradle*" | head -n 1))
-          if [ -n "$BUILD_DIR" ]; then
-            echo "Found build directory at $BUILD_DIR"
-            cd "$BUILD_DIR"
-            gradle assembleDebug --stacktrace
-          else
-            echo "No Gradle file found!"
-            exit 1
-          fi
+        # Locate the real app module folder containing build.gradle.kts
+        TARGET_DIR=$(dirname $(find . -name "build.gradle.kts" | head -n 1))
+        echo "Found app module at: $TARGET_DIR"
+
+        # Create settings.gradle.kts at repository root with Google and MavenCentral repositories
+        cat << 'EOF' > settings.gradle.kts
+        pluginManagement {
+            repositories {
+                google()
+                mavenCentral()
+                gradlePluginPortal()
+            }
+        }
+        dependencyResolutionManagement {
+            repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+            repositories {
+                google()
+                mavenCentral()
+            }
+        }
+        rootProject.name = "KidsVatikaHRMS"
+        include(":app")
+        EOF
+
+        # Create root build.gradle.kts with Android application plugin declaration
+        cat << 'EOF' > build.gradle.kts
+        plugins {
+            id("com.android.application") version "8.5.2" apply false
+            id("org.jetbrains.kotlin.android") version "2.0.0" apply false
+            id("com.google.devtools.ksp") version "2.0.0-1.0.24" apply false
+        }
+        EOF
+
+        # Ensure the app module is at ./app
+        if [ "$TARGET_DIR" != "./app" ]; then
+          echo "Restructuring from $TARGET_DIR to ./app"
+          mkdir -p temp_app
+          cp -r $TARGET_DIR/* temp_app/
+          rm -rf app
+          mv temp_app app
         fi
+
+        # Generate Gradle wrapper if missing
+        gradle wrapper --gradle-version 8.7
+
+    - name: Build Debug APK
+      run: |
+        chmod +x ./gradlew
+        ./gradlew assembleDebug --no-daemon --stacktrace
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: KidsVatika-Debug-APK
-        path: "**/build/outputs/apk/**/*.apk"
+        path: "app/build/outputs/apk/debug/*.apk"
