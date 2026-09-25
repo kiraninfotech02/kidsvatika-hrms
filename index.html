@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function() {
+        try {
+          var origDefineProperty = Object.defineProperty;
+          Object.defineProperty = function(obj, prop, descriptor) {
+            if ((obj === window || (typeof Window !== 'undefined' && obj === Window.prototype)) && prop === 'fetch' && descriptor) {
+              var customDesc = Object.assign({}, descriptor);
+              customDesc.configurable = true;
+              customDesc.enumerable = true;
+              if (customDesc.get && !customDesc.set) {
+                var currentVal = undefined;
+                var origGet = customDesc.get;
+                customDesc.set = function(val) {
+                  currentVal = val;
+                };
+                customDesc.get = function() {
+                  return currentVal !== undefined ? currentVal : origGet();
+                };
+              }
+              return origDefineProperty.call(Object, obj, prop, customDesc);
+            }
+            return origDefineProperty.apply(Object, arguments);
+          };
+        } catch (e) {}
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kids Vatika HRMS Android App & Kotlin Studio</title>
+    <meta name="description" content="Production-ready Android Jetpack Compose HRMS Mobile App implementation for Kids Vatika Smart School with geofencing, CameraX liveness, and Retrofit network client." />
+    <meta property="og:title" content="Kids Vatika HRMS Android App & Kotlin Studio" />
+    <meta property="og:description" content="Production-ready Android Jetpack Compose HRMS Mobile App implementation for Kids Vatika Smart School with geofencing, CameraX liveness, and Retrofit network client." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-slate-950 text-slate-100 antialiased selection:bg-indigo-500 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

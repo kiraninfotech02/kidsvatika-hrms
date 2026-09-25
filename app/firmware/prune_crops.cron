@@ -1,0 +1,2 @@
+# Daily Edge Crop Pruning (Runs daily at 00:00)
+0 0 * * * find /var/lib/kidsvatika/crops/ -type f -mtime +7 -delete

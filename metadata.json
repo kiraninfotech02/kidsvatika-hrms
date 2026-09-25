@@ -1,0 +1,6 @@
+{
+  "name": "Kids Vatika HRMS Android App & Kotlin Studio",
+  "description": "Production-ready Android Jetpack Compose HRMS Mobile App implementation for Kids Vatika Smart School with geofencing, CameraX liveness, and Retrofit network client.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
