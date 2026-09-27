@@ -1,4 +1,4 @@
-name: Build Kids Vatika APK
+name: Build Kids Vatika Production APK
 
 on:
   push:
@@ -10,176 +10,198 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository Code
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Setup Java JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Accept Android Licenses
-        run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+      - name: Setup Node.js (To build web bundle if needed)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
 
-      - name: Setup App Structure and Files
+      - name: Build Web Assets & Assemble Full Architecture
         run: |
           set -e
-          echo "=== Organizing directories ==="
-          APP_GRADLE_FILE=$(find . -name "build.gradle.kts" -o -name "build.gradle" | grep -v "^\./build.gradle" | head -n 1 || true)
-          APP_DIR=$(dirname "$APP_GRADLE_FILE" || true)
-
-          if [ -n "$APP_DIR" ] && [ "$APP_DIR" != "./app" ] && [ -d "$APP_DIR" ]; then
-            mkdir -p unified_app
-            cp -r "$APP_DIR"/* unified_app/
-            rm -rf app
-            mv unified_app app
+          echo "=== 1. Building Web Assets if package.json exists ==="
+          if [ -f "package.json" ]; then
+            npm install --legacy-peer-deps || true
+            npm run build || true
           fi
 
+          echo "=== 2. Setting up Android App Structure ==="
+          mkdir -p app/src/main/assets
           mkdir -p app/src/main/java/com/kidsvatika/hrms
           mkdir -p app/src/main/res/values
 
-          if [ -d "./src" ]; then
-            cp -r ./src/* app/src/main/java/com/kidsvatika/hrms/ || true
+          # Copy web bundle to assets
+          if [ -d "dist" ]; then
+            cp -r dist/* app/src/main/assets/
+          elif [ -d "build" ]; then
+            cp -r build/* app/src/main/assets/
+          elif [ -f "index.html" ]; then
+            cp -r ./* app/src/main/assets/ || true
           fi
 
-          echo "=== Creating MainActivity.kt ==="
-          python3 -c '
-          code = """package com.kidsvatika.hrms
+          # Ensure index.html is present in assets root
+          if [ ! -f "app/src/main/assets/index.html" ]; then
+            FIND_INDEX=$(find . -name "index.html" | grep -v "app/build" | head -n 1)
+            if [ -n "$FIND_INDEX" ]; then
+              INDEX_DIR=$(dirname "$FIND_INDEX")
+              cp -r "$INDEX_DIR"/* app/src/main/assets/
+            fi
+          fi
 
-          import android.os.Bundle
-          import androidx.activity.ComponentActivity
-          import androidx.activity.compose.setContent
-          import androidx.compose.foundation.layout.*
-          import androidx.compose.foundation.shape.RoundedCornerShape
-          import androidx.compose.material3.*
-          import androidx.compose.ui.Alignment
-          import androidx.compose.ui.Modifier
-          import androidx.compose.ui.graphics.Color
-          import androidx.compose.ui.text.font.FontWeight
-          import androidx.compose.ui.unit.dp
-          import androidx.compose.ui.unit.sp
+          echo "=== 3. Creating Production WebView Activity ==="
+          cat << 'EOF' > app/src/main/java/com/kidsvatika/hrms/MainActivity.java
+          package com.kidsvatika.hrms;
 
-          class MainActivity : ComponentActivity() {
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  try {
-                      setContent {
-                          MaterialTheme {
-                              Surface(
-                                  modifier = Modifier.fillMaxSize(),
-                                  color = Color(0xFF0F172A)
-                              ) {
-                                  Box(
-                                      modifier = Modifier.fillMaxSize(),
-                                      contentAlignment = Alignment.Center
-                                  ) {
-                                      Card(
-                                          shape = RoundedCornerShape(16.dp),
-                                          colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                          modifier = Modifier.padding(24.dp).fillMaxWidth()
-                                      ) {
-                                          Column(
-                                              modifier = Modifier.padding(24.dp),
-                                              horizontalAlignment = Alignment.CenterHorizontally
-                                          ) {
-                                              Text(
-                                                  text = "Kids Vatika HRMS",
-                                                  color = Color.White,
-                                                  fontSize = 22.sp,
-                                                  fontWeight = FontWeight.Bold
-                                              )
-                                              Spacer(modifier = Modifier.height(8.dp))
-                                              Text(
-                                                  text = "Smart Campus Ecosystem Active",
-                                                  color = Color(0xFF38BDF8),
-                                                  fontSize = 14.sp
-                                              )
-                                              Spacer(modifier = Modifier.height(24.dp))
-                                              Button(
-                                                  onClick = { },
-                                                  colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                                              ) {
-                                                  Text("Staff Check-in Active", color = Color.White)
-                                              }
-                                          }
-                                      }
-                                  }
-                              }
-                          }
+          import android.Manifest;
+          import android.annotation.SuppressLint;
+          import android.app.Activity;
+          import android.content.pm.PackageManager;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.webkit.GeolocationPermissions;
+          import android.webkit.PermissionRequest;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import androidx.annotation.NonNull;
+          import androidx.core.app.ActivityCompat;
+          import androidx.core.content.ContextCompat;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+              private static final int PERMISSION_REQ_CODE = 101;
+
+              @SuppressLint("SetJavaScriptEnabled")
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  webView = new WebView(this);
+                  setContentView(webView);
+
+                  WebSettings webSettings = webView.getSettings();
+                  webSettings.setJavaScriptEnabled(true);
+                  webSettings.setDomStorageEnabled(true);
+                  webSettings.setDatabaseEnabled(true);
+                  webSettings.setAllowFileAccess(true);
+                  webSettings.setAllowContentAccess(true);
+                  webSettings.setAllowFileAccessFromFileURLs(true);
+                  webSettings.setAllowUniversalAccessFromFileURLs(true);
+                  webSettings.setMediaPlaybackRequiresUserGesture(false);
+                  webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+
+                  webView.setWebViewClient(new WebViewClient());
+                  webView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onPermissionRequest(final PermissionRequest request) {
+                          request.grant(request.getResources());
                       }
-                  } catch (e: Exception) {
-                      e.printStackTrace()
+
+                      @Override
+                      public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                          callback.invoke(origin, true, false);
+                      }
+                  });
+
+                  requestRequiredPermissions();
+                  webView.loadUrl("file:///android_asset/index.html");
+              }
+
+              private void requestRequiredPermissions() {
+                  String[] permissions = {
+                      Manifest.permission.CAMERA,
+                      Manifest.permission.ACCESS_FINE_LOCATION,
+                      Manifest.permission.ACCESS_COARSE_LOCATION
+                  };
+                  ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQ_CODE);
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
                   }
               }
           }
-          """
-          with open("app/src/main/java/com/kidsvatika/hrms/MainActivity.kt", "w") as f:
-              f.write(code)
-          '
+          EOF
 
-          echo "=== Creating Themes and Manifest ==="
-          python3 -c '
-          themes = """<resources>
+          echo "=== 4. Creating Crash-Proof Theme & Strings ==="
+          cat << 'EOF' > app/src/main/res/values/themes.xml
+          <resources>
               <style name="Theme.KidsVatikaHRMS" parent="android:Theme.Material.Light.NoActionBar">
                   <item name="android:windowNoTitle">true</item>
                   <item name="android:windowActionBar">false</item>
                   <item name="android:statusBarColor">#0F172A</item>
               </style>
-          </resources>"""
-          with open("app/src/main/res/values/themes.xml", "w") as f:
-              f.write(themes)
+          </resources>
+          EOF
 
-          strings = """<resources>
+          cat << 'EOF' > app/src/main/res/values/strings.xml
+          <resources>
               <string name="app_name">Kids Vatika HRMS</string>
-          </resources>"""
-          with open("app/src/main/res/values/strings.xml", "w") as f:
-              f.write(strings)
+          </resources>
+          EOF
 
-          manifest = """<?xml version="1.0" encoding="utf-8"?>
+          echo "=== 5. Writing Hardened Manifest with Hardware Acceleration ==="
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.CAMERA" />
               <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
               <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
               <uses-permission android:name="android.permission.VIBRATE" />
+              <uses-feature android:name="android.hardware.camera" android:required="false" />
+
               <application
                   android:allowBackup="false"
                   android:icon="@android:drawable/sym_def_app_icon"
                   android:label="@string/app_name"
                   android:roundIcon="@android:drawable/sym_def_app_icon"
                   android:supportsRtl="true"
+                  android:hardwareAccelerated="true"
+                  android:usesCleartextTraffic="true"
                   android:theme="@style/Theme.KidsVatikaHRMS">
+
                   <activity
                       android:name="com.kidsvatika.hrms.MainActivity"
                       android:exported="true"
                       android:windowSoftInputMode="adjustResize"
-                      android:configChanges="orientation|screenSize"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
                       android:screenOrientation="portrait">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
+
               </application>
-          </manifest>"""
-          with open("app/src/main/AndroidManifest.xml", "w") as f:
-              f.write(manifest)
-          '
+          </manifest>
+          EOF
 
-          echo "=== Generating Gradle Configuration ==="
-          python3 -c '
-          gradle_props = """android.useAndroidX=true
+          echo "=== 6. Configuring Root and App Build Files ==="
+          cat << 'EOF' > gradle.properties
+          android.useAndroidX=true
           android.enableJetifier=true
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8"""
-          with open("gradle.properties", "w") as f:
-              f.write(gradle_props)
-          with open("app/gradle.properties", "w") as f:
-              f.write(gradle_props)
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          EOF
+          cp gradle.properties app/
 
-          settings = """pluginManagement {
+          cat << 'EOF' > settings.gradle.kts
+          pluginManagement {
               repositories {
                   google()
                   mavenCentral()
@@ -194,22 +216,18 @@ jobs:
               }
           }
           rootProject.name = "KidsVatikaHRMS"
-          include(":app")"""
-          with open("settings.gradle.kts", "w") as f:
-              f.write(settings)
+          include(":app")
+          EOF
 
-          root_gradle = """plugins {
+          cat << 'EOF' > build.gradle.kts
+          plugins {
               id("com.android.application") version "8.5.2" apply false
-              id("org.jetbrains.kotlin.android") version "2.0.0" apply false
-              id("org.jetbrains.kotlin.plugin.compose") version "2.0.0" apply false
-          }"""
-          with open("build.gradle.kts", "w") as f:
-              f.write(root_gradle)
+          }
+          EOF
 
-          app_gradle = """plugins {
+          cat << 'EOF' > app/build.gradle.kts
+          plugins {
               id("com.android.application")
-              id("org.jetbrains.kotlin.android")
-              id("org.jetbrains.kotlin.plugin.compose")
           }
 
           android {
@@ -229,32 +247,18 @@ jobs:
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
               }
-
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
-
-              buildFeatures {
-                  compose = true
-              }
           }
 
           dependencies {
-              implementation("androidx.core:core-ktx:1.13.1")
-              implementation("androidx.activity:activity-compose:1.9.1")
-              implementation(platform("androidx.compose:compose-bom:2024.06.00"))
-              implementation("androidx.compose.ui:ui")
-              implementation("androidx.compose.ui:ui-graphics")
-              implementation("androidx.compose.material3:material3")
-          }"""
-          with open("app/build.gradle.kts", "w") as f:
-              f.write(app_gradle)
-          '
+              implementation("androidx.core:core:1.13.1")
+              implementation("androidx.multidex:multidex:2.0.1")
+          }
+          EOF
 
           gradle wrapper --gradle-version 8.7
           chmod +x ./gradlew
 
-      - name: Build Debug APK
+      - name: Build Production Debug APK
         run: |
           ./gradlew assembleDebug --no-daemon --stacktrace
 
@@ -262,5 +266,5 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: KidsVatika-Debug-APK
+          name: KidsVatika-Production-APK
           path: "app/build/outputs/apk/debug/*.apk"
