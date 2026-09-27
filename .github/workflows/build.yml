@@ -47,7 +47,7 @@ jobs:
           cp -r ./src/* app/src/main/java/com/kidsvatika/hrms/ || true
         fi
 
-        # 3. Create Crash-Proof MainActivity with Try-Catch Safety Net
+        # 3. Create Crash-Proof MainActivity
         cat << 'EOF' > app/src/main/java/com/kidsvatika/hrms/MainActivity.kt
         package com.kidsvatika.hrms
 
@@ -138,11 +138,10 @@ jobs:
         </resources>
         EOF
 
-        # 5. Clean AndroidManifest targeting concrete MainActivity
+        # 5. Clean AndroidManifest (Package attribute removed from root tag to avoid AGP 8+ conflict)
         cat << 'EOF' > app/src/main/AndroidManifest.xml
         <?xml version="1.0" encoding="utf-8"?>
-        <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-            package="com.kidsvatika.hrms">
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -175,7 +174,7 @@ jobs:
         </manifest>
         EOF
 
-        # 6. Global gradle.properties (MultiDex + AndroidX)
+        # 6. Global gradle.properties
         cat << 'EOF' > gradle.properties
         android.useAndroidX=true
         android.enableJetifier=true
@@ -212,16 +211,19 @@ jobs:
         }
         EOF
 
-        # 9. App build.gradle.kts Fixes
+        # 9. App build.gradle.kts - Align JVM target and namespace
         if [ -f "app/build.gradle.kts" ]; then
           sed -i 's/minSdk = [0-9]\+/minSdk = 24/g' app/build.gradle.kts
           if ! grep -q "org.jetbrains.kotlin.plugin.compose" app/build.gradle.kts; then
             sed -i '/plugins {/a \    id("org.jetbrains.kotlin.plugin.compose")' app/build.gradle.kts
           fi
-          # Ensure Material library dependency exists for Compose & Theme compatibility
-          if ! grep -q "com.google.android.material:material" app/build.gradle.kts; then
-            sed -i '/dependencies {/a \    implementation("com.google.android.material:material:1.12.0")' app/build.gradle.kts
+          if ! grep -q "namespace" app/build.gradle.kts; then
+            sed -i '/android {/a \    namespace = "com.kidsvatika.hrms"' app/build.gradle.kts
           fi
+          # Force Java 17 compile options and Kotlin JVM target 17
+          sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' app/build.gradle.kts
+          sed -i 's/jvmTarget = "1.8"/jvmTarget = "17"/g' app/build.gradle.kts
+          sed -i 's/jvmTarget = "11"/jvmTarget = "17"/g' app/build.gradle.kts
         fi
 
         gradle wrapper --gradle-version 8.7
@@ -229,7 +231,7 @@ jobs:
 
     - name: Build Debug APK
       run: |
-        ./gradlew assembleDebug --no-daemon --stacktrace
+        ./gradlew assembleDebug -Dkotlin.daemon.jvm.options="-Xmx2048M" --no-daemon --stacktrace
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
