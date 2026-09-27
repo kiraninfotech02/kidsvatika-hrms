@@ -1,4 +1,4 @@
-name: Build Kids Vatika APK (Deep Verified Release)
+name: Build Kids Vatika APK (Universal JVM Toolchain)
 
 on:
   push:
@@ -138,7 +138,7 @@ jobs:
         </resources>
         EOF
 
-        # 5. Clean AndroidManifest (Package attribute removed from root tag to avoid AGP 8+ conflict)
+        # 5. Clean AndroidManifest
         cat << 'EOF' > app/src/main/AndroidManifest.xml
         <?xml version="1.0" encoding="utf-8"?>
         <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -211,7 +211,7 @@ jobs:
         }
         EOF
 
-        # 9. App build.gradle.kts - Align JVM target and namespace
+        # 9. App build.gradle.kts Fixes & Explicit Toolchain Enforce
         if [ -f "app/build.gradle.kts" ]; then
           sed -i 's/minSdk = [0-9]\+/minSdk = 24/g' app/build.gradle.kts
           if ! grep -q "org.jetbrains.kotlin.plugin.compose" app/build.gradle.kts; then
@@ -220,10 +220,20 @@ jobs:
           if ! grep -q "namespace" app/build.gradle.kts; then
             sed -i '/android {/a \    namespace = "com.kidsvatika.hrms"' app/build.gradle.kts
           fi
-          # Force Java 17 compile options and Kotlin JVM target 17
-          sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' app/build.gradle.kts
-          sed -i 's/jvmTarget = "1.8"/jvmTarget = "17"/g' app/build.gradle.kts
-          sed -i 's/jvmTarget = "11"/jvmTarget = "17"/g' app/build.gradle.kts
+          
+          # Force JVM Toolchain 17 for both Java and Kotlin tasks
+          cat << 'EOF' >> app/build.gradle.kts
+
+          kotlin {
+              jvmToolchain(17)
+          }
+
+          tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+              compilerOptions {
+                  jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+              }
+          }
+          EOF
         fi
 
         gradle wrapper --gradle-version 8.7
