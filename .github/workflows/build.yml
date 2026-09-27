@@ -1,4 +1,4 @@
-name: Build Kids Vatika APK (Universal JVM Toolchain)
+name: Build Kids Vatika APK (Fixed Syntax Release)
 
 on:
   push:
@@ -23,14 +23,11 @@ jobs:
       run: |
         yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-    - name: Deep Fix Runtime Architecture & Compatibility
+    - name: Reconstruct Structure and Fix JVM Target
       run: |
-        echo "=== Deep Scanning Repository Structure ==="
-
-        # 1. Consolidate App Directory
+        echo "=== Locating app directory ==="
         APP_GRADLE_FILE=$(find . -name "build.gradle.kts" -o -name "build.gradle" | grep -v "^\./build.gradle" | head -n 1)
         APP_DIR=$(dirname "$APP_GRADLE_FILE")
-        echo "Found app module at: $APP_DIR"
 
         if [ "$APP_DIR" != "./app" ] && [ -d "$APP_DIR" ]; then
           mkdir -p unified_app
@@ -42,206 +39,236 @@ jobs:
         mkdir -p app/src/main/java/com/kidsvatika/hrms
         mkdir -p app/src/main/res/values
 
-        # 2. Copy source files if present
         if [ -d "./src" ]; then
           cp -r ./src/* app/src/main/java/com/kidsvatika/hrms/ || true
         fi
 
-        # 3. Create Crash-Proof MainActivity
+        # 1. Safe MainActivity
         cat << 'EOF' > app/src/main/java/com/kidsvatika/hrms/MainActivity.kt
-        package com.kidsvatika.hrms
+package com.kidsvatika.hrms
 
-        import android.os.Bundle
-        import androidx.activity.ComponentActivity
-        import androidx.activity.compose.setContent
-        import androidx.compose.foundation.background
-        import androidx.compose.foundation.layout.*
-        import androidx.compose.foundation.shape.RoundedCornerShape
-        import androidx.compose.material3.*
-        import androidx.compose.runtime.*
-        import androidx.compose.ui.Alignment
-        import androidx.compose.ui.Modifier
-        import androidx.compose.ui.graphics.Color
-        import androidx.compose.ui.text.font.FontWeight
-        import androidx.compose.ui.unit.dp
-        import androidx.compose.ui.unit.sp
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
-        class MainActivity : ComponentActivity() {
-            override fun onCreate(savedInstanceState: Bundle?) {
-                super.onCreate(savedInstanceState)
-                try {
-                    setContent {
-                        MaterialTheme {
-                            Surface(
-                                modifier = Modifier.fillMaxSize(),
-                                color = Color(0xFF0F172A)
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        try {
+            setContent {
+                MaterialTheme {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = Color(0xFF0F172A)
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                                modifier = Modifier.padding(24.dp).fillMaxWidth()
                             ) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
+                                Column(
+                                    modifier = Modifier.padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Card(
-                                        shape = RoundedCornerShape(16.dp),
-                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
-                                        modifier = Modifier.padding(24.dp).fillMaxWidth()
+                                    Text(
+                                        text = "Kids Vatika HRMS",
+                                        color = Color.White,
+                                        fontSize = 22.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Smart Campus Ecosystem Active",
+                                        color = Color(0xFF38BDF8),
+                                        fontSize = 14.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(24.dp))
+                                    Button(
+                                        onClick = { },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
                                     ) {
-                                        Column(
-                                            modifier = Modifier.padding(24.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            Text(
-                                                text = "Kids Vatika HRMS",
-                                                color = Color.White,
-                                                fontSize = 22.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Text(
-                                                text = "Smart Campus Ecosystem Active",
-                                                color = Color(0xFF38BDF8),
-                                                fontSize = 14.sp
-                                            )
-                                            Spacer(modifier = Modifier.height(24.dp))
-                                            Button(
-                                                onClick = { },
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                                            ) {
-                                                Text("Staff Check-in Active", color = Color.White)
-                                            }
-                                        }
+                                        Text("Staff Check-in Active", color = Color.White)
                                     }
                                 }
                             }
                         }
                     }
-                } catch (e: Exception) {
-                    e.printStackTrace()
                 }
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        EOF
+    }
+}
+EOF
 
-        # 4. Generate Safe Theme for Universal Android Compatibility
+        # 2. Themes and Strings
         cat << 'EOF' > app/src/main/res/values/themes.xml
-        <resources>
-            <style name="Theme.KidsVatikaHRMS" parent="android:Theme.Material.Light.NoActionBar">
-                <item name="android:windowNoTitle">true</item>
-                <item name="android:windowActionBar">false</item>
-                <item name="android:statusBarColor">#0F172A</item>
-            </style>
-        </resources>
-        EOF
+<resources>
+    <style name="Theme.KidsVatikaHRMS" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:statusBarColor">#0F172A</item>
+    </style>
+</resources>
+EOF
 
         cat << 'EOF' > app/src/main/res/values/strings.xml
-        <resources>
-            <string name="app_name">Kids Vatika HRMS</string>
-        </resources>
-        EOF
+<resources>
+    <string name="app_name">Kids Vatika HRMS</string>
+</resources>
+EOF
 
-        # 5. Clean AndroidManifest
+        # 3. Clean AndroidManifest
         cat << 'EOF' > app/src/main/AndroidManifest.xml
-        <?xml version="1.0" encoding="utf-8"?>
-        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-            <uses-permission android:name="android.permission.INTERNET" />
-            <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-            <uses-permission android:name="android.permission.CAMERA" />
-            <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-            <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-            <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
-            <application
-                android:allowBackup="false"
-                android:icon="@android:drawable/sym_def_app_icon"
-                android:label="@string/app_name"
-                android:roundIcon="@android:drawable/sym_def_app_icon"
-                android:supportsRtl="true"
-                android:theme="@style/Theme.KidsVatikaHRMS">
+    <application
+        android:allowBackup="false"
+        android:icon="@android:drawable/sym_def_app_icon"
+        android:label="@string/app_name"
+        android:roundIcon="@android:drawable/sym_def_app_icon"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.KidsVatikaHRMS">
 
-                <activity
-                    android:name="com.kidsvatika.hrms.MainActivity"
-                    android:exported="true"
-                    android:windowSoftInputMode="adjustResize"
-                    android:configChanges="orientation|screenSize"
-                    android:screenOrientation="portrait">
-                    <intent-filter>
-                        <action android:name="android.intent.action.MAIN" />
-                        <category android:name="android.intent.category.LAUNCHER" />
-                    </intent-filter>
-                </activity>
+        <activity
+            android:name="com.kidsvatika.hrms.MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
-            </application>
-        </manifest>
-        EOF
+    </application>
+</manifest>
+EOF
 
-        # 6. Global gradle.properties
+        # 4. gradle.properties
         cat << 'EOF' > gradle.properties
-        android.useAndroidX=true
-        android.enableJetifier=true
-        org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-        EOF
+android.useAndroidX=true
+android.enableJetifier=true
+org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+EOF
         cp gradle.properties app/
 
-        # 7. Root settings.gradle.kts
+        # 5. Root settings.gradle.kts
         cat << 'EOF' > settings.gradle.kts
-        pluginManagement {
-            repositories {
-                google()
-                mavenCentral()
-                gradlePluginPortal()
-            }
-        }
-        dependencyResolutionManagement {
-            repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
-            repositories {
-                google()
-                mavenCentral()
-            }
-        }
-        rootProject.name = "KidsVatikaHRMS"
-        include(":app")
-        EOF
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "KidsVatikaHRMS"
+include(":app")
+EOF
 
-        # 8. Root build.gradle.kts
+        # 6. Root build.gradle.kts
         cat << 'EOF' > build.gradle.kts
-        plugins {
-            id("com.android.application") version "8.5.2" apply false
-            id("org.jetbrains.kotlin.android") version "2.0.0" apply false
-            id("org.jetbrains.kotlin.plugin.compose") version "2.0.0" apply false
+plugins {
+    id("com.android.application") version "8.5.2" apply false
+    id("org.jetbrains.kotlin.android") version "2.0.0" apply false
+    id("org.jetbrains.kotlin.plugin.compose") version "2.0.0" apply false
+}
+EOF
+
+        # 7. Complete app/build.gradle.kts (Synchronized Java 17 and Kotlin 17)
+        cat << 'EOF' > app/build.gradle.kts
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+android {
+    namespace = "com.kidsvatika.hrms"
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = "com.kidsvatika.hrms"
+        minSdk = 24
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
+        multiDexEnabled = true
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
-        EOF
+    }
 
-        # 9. App build.gradle.kts Fixes & Explicit Toolchain Enforce
-        if [ -f "app/build.gradle.kts" ]; then
-          sed -i 's/minSdk = [0-9]\+/minSdk = 24/g' app/build.gradle.kts
-          if ! grep -q "org.jetbrains.kotlin.plugin.compose" app/build.gradle.kts; then
-            sed -i '/plugins {/a \    id("org.jetbrains.kotlin.plugin.compose")' app/build.gradle.kts
-          fi
-          if ! grep -q "namespace" app/build.gradle.kts; then
-            sed -i '/android {/a \    namespace = "com.kidsvatika.hrms"' app/build.gradle.kts
-          fi
-          
-          # Force JVM Toolchain 17 for both Java and Kotlin tasks
-          cat << 'EOF' >> app/build.gradle.kts
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 
-          kotlin {
-              jvmToolchain(17)
-          }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 
-          tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-              compilerOptions {
-                  jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-              }
-          }
-          EOF
-        fi
+    buildFeatures {
+        compose = true
+    }
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+    implementation("androidx.activity:activity-compose:1.9.1")
+    implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+}
+EOF
 
         gradle wrapper --gradle-version 8.7
         chmod +x ./gradlew
 
     - name: Build Debug APK
       run: |
-        ./gradlew assembleDebug -Dkotlin.daemon.jvm.options="-Xmx2048M" --no-daemon --stacktrace
+        ./gradlew assembleDebug --no-daemon --stacktrace
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
