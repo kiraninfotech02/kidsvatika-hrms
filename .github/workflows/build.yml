@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: Build Web App & Inject Mobile Fullscreen Mode
+      - name: Build Web App & Clean Android Setup
         run: |
           set -e
           echo "=== 1. Building Vite Production Bundle ==="
@@ -46,12 +46,10 @@ jobs:
             cp -r ./* app/src/main/assets/ || true
           fi
 
-          # Fix paths to relative
           if [ -f "app/src/main/assets/index.html" ]; then
             sed -i 's|src="/|src="./|g' app/src/main/assets/index.html
             sed -i 's|href="/|href="./|g' app/src/main/assets/index.html
 
-            # Inject clean CSS to hide desktop wrapper and expand phone frame to 100%
             python3 -c '
           css = """
           header, nav, .header, [role="navigation"],
@@ -102,13 +100,13 @@ jobs:
           '
           fi
 
-          echo "=== 3. Creating Native-Feel WebView Activity ==="
+          echo "=== 3. Writing Pure Zero-Dependency MainActivity ==="
           python3 -c '
           java_code = """package com.kidsvatika.hrms;
 
-          import android.Manifest;
           import android.annotation.SuppressLint;
           import android.app.Activity;
+          import android.os.Build;
           import android.os.Bundle;
           import android.view.View;
           import android.view.Window;
@@ -119,11 +117,9 @@ jobs:
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
-          import androidx.core.app.ActivityCompat;
 
           public class MainActivity extends Activity {
               private WebView webView;
-              private static final int PERMISSION_REQ_CODE = 101;
 
               @SuppressLint("SetJavaScriptEnabled")
               @Override
@@ -148,9 +144,6 @@ jobs:
                   webSettings.setMediaPlaybackRequiresUserGesture(false);
                   webSettings.setUseWideViewPort(true);
                   webSettings.setLoadWithOverviewMode(true);
-                  webSettings.setSupportZoom(false);
-                  webSettings.setBuiltInZoomControls(false);
-                  webSettings.setDisplayZoomControls(false);
 
                   webSettings.setUserAgentString("Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 KidsVatikaApp");
 
@@ -158,8 +151,8 @@ jobs:
                       @Override
                       public void onPageFinished(WebView view, String url) {
                           view.evaluateJavascript(
-                              "const tabs = Array.from(document.querySelectorAll(\"button\"));" +
-                              "const emuTab = tabs.find(b => b.innerText.includes(\"Emulator\") || b.innerText.includes(\"Device\"));" +
+                              "const tabs = Array.from(document.querySelectorAll(\\\"button\\\"));" +
+                              "const emuTab = tabs.find(b => b.innerText.includes(\\\"Emulator\\\") || b.innerText.includes(\\\"Device\\\"));" +
                               "if(emuTab) emuTab.click();", null
                           );
                       }
@@ -168,7 +161,9 @@ jobs:
                   webView.setWebChromeClient(new WebChromeClient() {
                       @Override
                       public void onPermissionRequest(final PermissionRequest request) {
-                          request.grant(request.getResources());
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                              request.grant(request.getResources());
+                          }
                       }
 
                       @Override
@@ -177,22 +172,21 @@ jobs:
                       }
                   });
 
-                  requestPermissions();
-                  webView.loadUrl("file:///android_asset/index.html");
-              }
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                      String[] permissions = {
+                          "android.permission.CAMERA",
+                          "android.permission.ACCESS_FINE_LOCATION",
+                          "android.permission.ACCESS_COARSE_LOCATION"
+                      };
+                      requestPermissions(permissions, 101);
+                  }
 
-              private void requestPermissions() {
-                  String[] permissions = {
-                      Manifest.permission.CAMERA,
-                      Manifest.permission.ACCESS_FINE_LOCATION,
-                      Manifest.permission.ACCESS_COARSE_LOCATION
-                  };
-                  ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQ_CODE);
+                  webView.loadUrl("file:///android_asset/index.html");
               }
 
               @Override
               public void onBackPressed() {
-                  if (webView.canGoBack()) {
+                  if (webView != null && webView.canGoBack()) {
                       webView.goBack();
                   } else {
                       super.onBackPressed();
@@ -306,7 +300,6 @@ jobs:
                   targetSdk = 34
                   versionCode = 1
                   versionName = \"1.0\"
-                  multiDexEnabled = true
               }
 
               compileOptions {
@@ -314,11 +307,7 @@ jobs:
                   targetCompatibility = JavaVersion.VERSION_17
               }
           }
-
-          dependencies {
-              implementation(\"androidx.core:core:1.13.1\")
-              implementation(\"androidx.multidex:multidex:2.0.1\")
-          }"""
+          """
           with open("app/build.gradle.kts", "w") as f:
               f.write(app_gradle)
           '
