@@ -29,7 +29,7 @@ jobs:
           set -e
           echo "=== 1. Building Vite Production Bundle ==="
           if [ -f "package.json" ]; then
-            npm install --force || npm install --legacy-peer-deps || true
+            npm install --force || true
             npx vite build --base="./" || npm run build || true
           fi
 
@@ -46,63 +46,65 @@ jobs:
             cp -r ./* app/src/main/assets/ || true
           fi
 
-          # 3. Path sanitization for Android Asset loading
+          # Fix paths to relative
           if [ -f "app/src/main/assets/index.html" ]; then
             sed -i 's|src="/|src="./|g' app/src/main/assets/index.html
             sed -i 's|href="/|href="./|g' app/src/main/assets/index.html
 
-            # Inject CSS to hide laptop dashboard and force emulator to become full-screen native mobile view
-            cat << 'EOF' > app/src/main/assets/mobile-override.css
-            /* Hide top developer header, tabs, and sidebar tools */
-            header, nav, .header, [role="navigation"], 
-            button:has-text("Export"), 
-            div:has(> button:contains("Export")),
-            div[class*="QA Testing"],
-            div[class*="Code Explorer"],
-            div[class*="Sandbox"],
-            div[class*="Architecture"] {
-                display: none !important;
-            }
+            # Inject clean CSS to hide desktop wrapper and expand phone frame to 100%
+            python3 -c '
+          css = """
+          header, nav, .header, [role="navigation"],
+          button:has-text("Export"),
+          div[class*="QA Testing"],
+          div[class*="Code Explorer"],
+          div[class*="Sandbox"],
+          div[class*="Architecture"] {
+              display: none !important;
+          }
+          html, body {
+              width: 100vw !important;
+              height: 100vh !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              overflow: hidden !important;
+              background-color: #0F172A !important;
+          }
+          div[class*="device"], div[class*="emulator"], div[class*="phone"], div[class*="screen"],
+          div[class*="mockup"], div[class*="pixel"] {
+              width: 100vw !important;
+              height: 100vh !important;
+              max-width: 100vw !important;
+              max-height: 100vh !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              border: none !important;
+              border-radius: 0 !important;
+              box-shadow: none !important;
+              position: fixed !important;
+              top: 0 !important;
+              left: 0 !important;
+              right: 0 !important;
+              bottom: 0 !important;
+              z-index: 999999 !important;
+          }
+          """
+          with open("app/src/main/assets/mobile-override.css", "w") as f:
+              f.write(css)
 
-            /* Make body fit perfectly to mobile viewport */
-            html, body {
-                width: 100vw !important;
-                height: 100vh !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                overflow: hidden !important;
-                background-color: #0F172A !important;
-                -webkit-user-select: none;
-                user-select: none;
-            }
+          with open("app/src/main/assets/index.html", "r") as f:
+              content = f.read()
 
-            /* Target the phone emulator frame and make it 100% full screen */
-            div[class*="device"], div[class*="emulator"], div[class*="phone"], div[class*="screen"],
-            div[class*="mockup"], div[class*="pixel"] {
-                width: 100vw !important;
-                height: 100vh !important;
-                max-width: 100vw !important;
-                max-height: 100vh !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                border: none !important;
-                border-radius: 0 !important;
-                box-shadow: none !important;
-                position: fixed !important;
-                top: 0 !important;
-                left: 0 !important;
-                right: 0 !important;
-                bottom: 0 !important;
-                z-index: 999999 !important;
-            }
-            EOF
-
-            sed -i 's|</head>|<link rel="stylesheet" href="./mobile-override.css"></head>|' app/src/main/assets/index.html
+          if "mobile-override.css" not in content:
+              content = content.replace("</head>", "<link rel=\"stylesheet\" href=\"./mobile-override.css\"></head>")
+              with open("app/src/main/assets/index.html", "w") as f:
+                  f.write(content)
+          '
           fi
 
-          echo "=== 4. Creating Native-Feel WebView Activity ==="
-          cat << 'EOF' > app/src/main/java/com/kidsvatika/hrms/MainActivity.java
-          package com.kidsvatika.hrms;
+          echo "=== 3. Creating Native-Feel WebView Activity ==="
+          python3 -c '
+          java_code = """package com.kidsvatika.hrms;
 
           import android.Manifest;
           import android.annotation.SuppressLint;
@@ -128,7 +130,6 @@ jobs:
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
 
-                  // Enable full screen mobile look
                   requestWindowFeature(Window.FEATURE_NO_TITLE);
                   getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
@@ -151,16 +152,14 @@ jobs:
                   webSettings.setBuiltInZoomControls(false);
                   webSettings.setDisplayZoomControls(false);
 
-                  // Force mobile user agent so app renders pure mobile UI
                   webSettings.setUserAgentString("Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 KidsVatikaApp");
 
                   webView.setWebViewClient(new WebViewClient() {
                       @Override
                       public void onPageFinished(WebView view, String url) {
-                          // Extra JS injection to click emulator tab or hide wrapper panels
                           view.evaluateJavascript(
-                              "const tabs = Array.from(document.querySelectorAll('button'));" +
-                              "const emuTab = tabs.find(b => b.innerText.includes('Emulator') || b.innerText.includes('Device'));" +
+                              "const tabs = Array.from(document.querySelectorAll(\"button\"));" +
+                              "const emuTab = tabs.find(b => b.innerText.includes(\"Emulator\") || b.innerText.includes(\"Device\"));" +
                               "if(emuTab) emuTab.click();", null
                           );
                       }
@@ -200,73 +199,75 @@ jobs:
                   }
               }
           }
-          EOF
+          """
+          with open("app/src/main/java/com/kidsvatika/hrms/MainActivity.java", "w") as f:
+              f.write(java_code)
+          '
 
-          echo "=== 5. Setting Themes and Manifest ==="
-          cat << 'EOF' > app/src/main/res/values/themes.xml
-          <resources>
+          echo "=== 4. Setting Themes and Manifest ==="
+          python3 -c '
+          themes = """<resources>
               <style name="Theme.KidsVatikaHRMS" parent="android:Theme.Material.Light.NoActionBar">
                   <item name="android:windowNoTitle">true</item>
                   <item name="android:windowActionBar">false</item>
                   <item name="android:statusBarColor">#0F172A</item>
               </style>
-          </resources>
-          EOF
+          </resources>"""
+          with open("app/src/main/res/values/themes.xml", "w") as f:
+              f.write(themes)
 
-          cat << 'EOF' > app/src/main/res/values/strings.xml
-          <resources>
+          strings = """<resources>
               <string name="app_name">Kids Vatika HRMS</string>
-          </resources>
-          EOF
+          </resources>"""
+          with open("app/src/main/res/values/strings.xml", "w") as f:
+              f.write(strings)
 
-          cat << 'EOF' > app/src/main/AndroidManifest.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-              <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-              <uses-permission android:name="android.permission.CAMERA" />
-              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-              <uses-permission android:name="android.permission.VIBRATE" />
-              <uses-feature android:name="android.hardware.camera" android:required="false" />
-
+          manifest = """<?xml version=\"1.0\" encoding=\"utf-8\"?>
+          <manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">
+              <uses-permission android:name=\"android.permission.INTERNET\" />
+              <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />
+              <uses-permission android:name=\"android.permission.CAMERA\" />
+              <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />
+              <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />
+              <uses-permission android:name=\"android.permission.VIBRATE\" />
+              <uses-feature android:name=\"android.hardware.camera\" android:required=\"false\" />
               <application
-                  android:allowBackup="false"
-                  android:icon="@android:drawable/sym_def_app_icon"
-                  android:label="@string/app_name"
-                  android:roundIcon="@android:drawable/sym_def_app_icon"
-                  android:supportsRtl="true"
-                  android:hardwareAccelerated="true"
-                  android:usesCleartextTraffic="true"
-                  android:theme="@style/Theme.KidsVatikaHRMS">
-
+                  android:allowBackup=\"false\"
+                  android:icon=\"@android:drawable/sym_def_app_icon\"
+                  android:label=\"@string/app_name\"
+                  android:roundIcon=\"@android:drawable/sym_def_app_icon\"
+                  android:supportsRtl=\"true\"
+                  android:hardwareAccelerated=\"true\"
+                  android:usesCleartextTraffic=\"true\"
+                  android:theme=\"@style/Theme.KidsVatikaHRMS\">
                   <activity
-                      android:name="com.kidsvatika.hrms.MainActivity"
-                      android:exported="true"
-                      android:windowSoftInputMode="adjustResize"
-                      android:configChanges="orientation|screenSize|keyboardHidden"
-                      android:screenOrientation="portrait">
+                      android:name=\"com.kidsvatika.hrms.MainActivity\"
+                      android:exported=\"true\"
+                      android:windowSoftInputMode=\"adjustResize\"
+                      android:configChanges=\"orientation|screenSize|keyboardHidden\"
+                      android:screenOrientation=\"portrait\">
                       <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
+                          <action android:name=\"android.intent.action.MAIN\" />
+                          <category android:name=\"android.intent.category.LAUNCHER\" />
                       </intent-filter>
                   </activity>
-
               </application>
-          </manifest>
-          EOF
+          </manifest>"""
+          with open("app/src/main/AndroidManifest.xml", "w") as f:
+              f.write(manifest)
+          '
 
-          echo "=== 6. Project Gradle Configuration ==="
-          cat << 'EOF' > gradle.properties
-          android.useAndroidX=true
+          echo "=== 5. Writing Project Gradle Files ==="
+          python3 -c '
+          gradle_props = """android.useAndroidX=true
           android.enableJetifier=true
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-          EOF
-          cp gradle.properties app/
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8"""
+          with open("gradle.properties", "w") as f:
+              f.write(gradle_props)
+          with open("app/gradle.properties", "w") as f:
+              f.write(gradle_props)
 
-          cat << 'EOF' > settings.gradle.kts
-          pluginManagement {
+          settings = """pluginManagement {
               repositories {
                   google()
                   mavenCentral()
@@ -280,31 +281,31 @@ jobs:
                   mavenCentral()
               }
           }
-          rootProject.name = "KidsVatikaHRMS"
-          include(":app")
-          EOF
+          rootProject.name = \"KidsVatikaHRMS\"
+          include(\":app\")"""
+          with open("settings.gradle.kts", "w") as f:
+              f.write(settings)
 
-          cat << 'EOF' > build.gradle.kts
-          plugins {
-              id("com.android.application") version "8.5.2" apply false
-          }
-          EOF
+          root_gradle = """plugins {
+              id(\"com.android.application\") version \"8.5.2\" apply false
+          }"""
+          with open("build.gradle.kts", "w") as f:
+              f.write(root_gradle)
 
-          cat << 'EOF' > app/build.gradle.kts
-          plugins {
-              id("com.android.application")
+          app_gradle = """plugins {
+              id(\"com.android.application\")
           }
 
           android {
-              namespace = "com.kidsvatika.hrms"
+              namespace = \"com.kidsvatika.hrms\"
               compileSdk = 34
 
               defaultConfig {
-                  applicationId = "com.kidsvatika.hrms"
+                  applicationId = \"com.kidsvatika.hrms\"
                   minSdk = 24
                   targetSdk = 34
                   versionCode = 1
-                  versionName = "1.0"
+                  versionName = \"1.0\"
                   multiDexEnabled = true
               }
 
@@ -315,10 +316,12 @@ jobs:
           }
 
           dependencies {
-              implementation("androidx.core:core:1.13.1")
-              implementation("androidx.multidex:multidex:2.0.1")
-          }
-          EOF
+              implementation(\"androidx.core:core:1.13.1\")
+              implementation(\"androidx.multidex:multidex:2.0.1\")
+          }"""
+          with open("app/build.gradle.kts", "w") as f:
+              f.write(app_gradle)
+          '
 
           gradle wrapper --gradle-version 8.7
           chmod +x ./gradlew
