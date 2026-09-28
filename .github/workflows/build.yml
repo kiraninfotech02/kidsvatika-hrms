@@ -24,45 +24,24 @@ jobs:
         with:
           node-version: 20
 
-      - name: Extract Core Mobile App & Build Clean Assets
+      - name: Locate True Native Project or Re-engineer Mobile Frame
         run: |
           set -e
-          echo "=== 1. Patching App Component to Remove Shell ==="
-          python3 -c '
-          import os, glob, re
-
-          # Find all source files
-          files = glob.glob("src/**/*.{tsx,jsx,ts,js}", recursive=True)
+          echo "=== 1. Searching for Native Kotlin Source Base ==="
           
-          # 1. Identify files containing the testbed text or tabs and clean them
-          for fpath in files:
-              try:
-                  with open(fpath, "r", encoding="utf-8") as f:
-                      txt = f.read()
+          # Check if there is an exported zip containing native Kotlin app
+          ZIP_FILE=$(find . -name "*.zip" | head -n 1 || true)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Found zip file: $ZIP_FILE. Extracting..."
+            unzip -q -o "$ZIP_FILE" -d extracted_app || true
+          fi
 
-                  orig = txt
-                  # Remove outer phone mockup borders and fixed heights
-                  txt = re.sub(r"rounded-\[(?:40|48)px\]", "rounded-none", txt)
-                  txt = re.sub(r"border-\[(?:8|10|12)px\]", "border-0", txt)
-                  txt = re.sub(r"h-\[(?:700|750|800|844)px\]", "h-auto min-h-screen", txt)
-                  txt = re.sub(r"max-w-(?:sm|md|xs)", "max-w-none w-full", txt)
-                  txt = re.sub(r"overflow-hidden", "overflow-y-auto", txt)
-
-                  if txt != orig:
-                      with open(fpath, "w", encoding="utf-8") as f:
-                          f.write(txt)
-                      print(f"Sanitized mockup styles in: {fpath}")
-              except Exception as e:
-                  pass
-          '
-
-          echo "=== 2. Building Clean Production Web Bundle ==="
+          echo "=== 2. Rebuilding Web Assets with Strict Fullscreen Overwrite ==="
           if [ -f "package.json" ]; then
             npm install --force || true
             npx vite build --base="./" || npm run build || true
           fi
 
-          echo "=== 3. Setting Up Android Assets ==="
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/java/com/kidsvatika/hrms
           mkdir -p app/src/main/res/values
@@ -75,99 +54,98 @@ jobs:
             cp -r ./* app/src/main/assets/ || true
           fi
 
-          # 4. Inject direct full-screen CSS & scroll enforcer
+          # Fix Asset URLs
           if [ -f "app/src/main/assets/index.html" ]; then
             sed -i 's|src="/|src="./|g' app/src/main/assets/index.html
             sed -i 's|href="/|href="./|g' app/src/main/assets/index.html
+          fi
 
-            python3 -c '
-          css = """
-          /* Complete elimination of top web UI */
-          header, nav, [class*="Header"], [class*="Navbar"], [class*="tabs"], [class*="Tabs"],
-          div[class*="QA Testing"], div[class*="Code Explorer"], div[class*="Sandbox"], div[class*="Architecture"],
-          button:has(svg), a[download] {
+          # 3. Create a Custom Fullscreen HTML Wrapper that embeds ONLY the phone content and unlocks touch scroll
+          python3 -c '
+          import os
+
+          # Read original index
+          with open("app/src/main/assets/index.html", "r", encoding="utf-8") as f:
+              orig_html = f.read()
+
+          # Inject CSS directly into the HTML head so it CANNOT be overridden by React
+          critical_css = """
+          <style id="android-fullscreen-lock">
+            /* Nuclear removal of top elements */
+            header, nav, [class*="Header"], [class*="Navbar"], [class*="tabs"], [class*="Tabs"],
+            div[class*="QA Testing"], div[class*="Code Explorer"], div[class*="Sandbox"], div[class*="Architecture"],
+            button:has(svg), a[download] {
               display: none !important;
-          }
+              height: 0px !important;
+              visibility: hidden !important;
+            }
 
-          /* Force complete touch scroll on body */
-          html, body {
-              width: 100% !important;
+            html, body {
+              width: 100vw !important;
               min-height: 100vh !important;
               height: auto !important;
               margin: 0 !important;
               padding: 0 !important;
               overflow-x: hidden !important;
-              overflow-y: auto !important;
+              overflow-y: scroll !important;
               -webkit-overflow-scrolling: touch !important;
-              background-color: #0B1120 !important;
-          }
+              background-color: #0F172A !important;
+            }
 
-          /* Fullscreen native look for inner phone app */
-          div[class*="device"], div[class*="emulator"], div[class*="phone"], div[class*="pixel"],
-          div[class*="mockup"], main, section {
-              width: 100% !important;
-              max-width: 100% !important;
+            /* Strip the phone mockup container completely so it expands full display */
+            div[class*="rounded-[40px]"], div[class*="rounded-[48px]"],
+            div[class*="border-[8px]"], div[class*="border-[12px]"],
+            div[class*="border-slate-800"], div[class*="max-w-sm"],
+            div[style*="border-radius: 40px"], div[style*="border-radius: 48px"] {
+              border: none !important;
+              border-radius: 0px !important;
+              box-shadow: none !important;
+              width: 100vw !important;
+              max-width: 100vw !important;
+              min-height: 100vh !important;
+              height: auto !important;
+              padding: 0px !important;
+              margin: 0px !important;
+              overflow-y: visible !important;
+              background-color: #0F172A !important;
+            }
+
+            /* Unblock scrolling on any internal scrolling container */
+            div[class*="overflow-hidden"], div[class*="overflow-y-auto"], main, section {
+              overflow-y: visible !important;
               height: auto !important;
               min-height: 100vh !important;
-              border: none !important;
-              border-radius: 0 !important;
-              box-shadow: none !important;
-              position: static !important;
-              overflow-y: visible !important;
-              background: #0B1120 !important;
-          }
-          """
-          with open("app/src/main/assets/pure-mobile.css", "w") as f:
-              f.write(css)
-
-          js_engine = """
-          <link rel="stylesheet" href="./pure-mobile.css">
-          <script>
-            (function() {
-              function cleanupDOM() {
-                // Permanently remove the top testbed card
-                document.querySelectorAll("div, p, span, h1, h2, h3").forEach(function(el) {
-                  var txt = el.innerText || "";
-                  if (txt.includes("Google Pixel 8 Android Testbed") || txt.includes("Test the real-time check-in") || txt.includes("Anti-Spoofing")) {
-                    var card = el.closest(".border, .rounded-xl, .rounded-2xl, div[class*=\"p-\"]");
-                    if (card && card !== document.body) {
-                      card.remove();
-                    }
+            }
+          </style>
+          <script id="android-touch-unlocker">
+            // Force touch event handling & remove testbed badge
+            function purgeBadges() {
+              var all = document.querySelectorAll("div, p, span");
+              for (var i = 0; i < all.length; i++) {
+                var el = all[i];
+                if (el.innerText && (el.innerText.indexOf("Test the real-time check-in") !== -1 || el.innerText.indexOf("Google Pixel 8 Android Testbed") !== -1)) {
+                  var p = el.parentElement;
+                  while (p && p !== document.body && !p.classList.contains("border") && !p.classList.contains("rounded-2xl")) {
+                    p = p.parentElement;
                   }
-                  if (txt.includes("Kids Vatika Smart") && (el.tagName === "HEADER" || el.closest("header"))) {
-                    var hdr = el.closest("header");
-                    if (hdr) hdr.remove();
+                  if (p && p !== document.body) {
+                    p.style.display = "none";
                   }
-                });
-
-                // Unlock all scrollable layers
-                document.querySelectorAll("*").forEach(function(el) {
-                  var style = window.getComputedStyle(el);
-                  if (style.overflowY === "hidden" || style.overflow === "hidden") {
-                    el.style.setProperty("overflow-y", "auto", "important");
-                    el.style.setProperty("-webkit-overflow-scrolling", "touch", "important");
-                  }
-                });
+                }
               }
-
-              window.addEventListener("DOMContentLoaded", cleanupDOM);
-              window.addEventListener("load", cleanupDOM);
-              setInterval(cleanupDOM, 250);
-            })();
+            }
+            window.addEventListener("DOMContentLoaded", purgeBadges);
+            setInterval(purgeBadges, 200);
           </script>
           """
 
-          with open("app/src/main/assets/index.html", "r") as f:
-              html = f.read()
-
-          if "pure-mobile.css" not in html:
-              html = html.replace("</head>", js_engine + "</head>")
-              with open("app/src/main/assets/index.html", "w") as f:
-                  f.write(html)
+          if "android-fullscreen-lock" not in orig_html:
+              orig_html = orig_html.replace("</head>", critical_css + "</head>")
+              with open("app/src/main/assets/index.html", "w", encoding="utf-8") as f:
+                  f.write(orig_html)
           '
-          fi
 
-          echo "=== 5. Writing Pure Zero-Dependency MainActivity ==="
+          echo "=== 4. Native MainActivity with Direct Touch Delegation ==="
           python3 -c '
           java_code = """package com.kidsvatika.hrms;
 
@@ -175,6 +153,7 @@ jobs:
           import android.app.Activity;
           import android.os.Build;
           import android.os.Bundle;
+          import android.view.MotionEvent;
           import android.view.View;
           import android.view.Window;
           import android.view.WindowManager;
@@ -197,9 +176,28 @@ jobs:
                   getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
                   webView = new WebView(this);
+                  webView.setFocusable(true);
+                  webView.setFocusableInTouchMode(true);
                   webView.setVerticalScrollBarEnabled(false);
                   webView.setHorizontalScrollBarEnabled(false);
                   webView.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
+
+                  // Fix touch drag on older Android 9 devices
+                  webView.setOnTouchListener(new View.OnTouchListener() {
+                      @Override
+                      public boolean onTouch(View v, MotionEvent event) {
+                          switch (event.getAction()) {
+                              case MotionEvent.ACTION_DOWN:
+                              case MotionEvent.ACTION_UP:
+                                  if (!v.hasFocus()) {
+                                      v.requestFocus();
+                                  }
+                                  break;
+                          }
+                          return false;
+                      }
+                  });
+
                   setContentView(webView);
 
                   WebSettings ws = webView.getSettings();
@@ -259,13 +257,13 @@ jobs:
               f.write(java_code)
           '
 
-          echo "=== 6. Setting Themes and Manifest ==="
+          echo "=== 5. Hardened Manifest & Styles ==="
           python3 -c '
           themes = """<resources>
               <style name="Theme.KidsVatikaHRMS" parent="android:Theme.Material.Light.NoActionBar">
                   <item name="android:windowNoTitle">true</item>
                   <item name="android:windowActionBar">false</item>
-                  <item name="android:statusBarColor">#0B1120</item>
+                  <item name="android:statusBarColor">#0F172A</item>
               </style>
           </resources>"""
           with open("app/src/main/res/values/themes.xml", "w") as f:
@@ -312,7 +310,7 @@ jobs:
               f.write(manifest)
           '
 
-          echo "=== 7. Writing Project Gradle Files ==="
+          echo "=== 6. Gradle Project Scripts ==="
           python3 -c '
           gradle_props = """android.useAndroidX=true
           android.enableJetifier=true
@@ -376,7 +374,7 @@ jobs:
           gradle wrapper --gradle-version 8.7
           chmod +x ./gradlew
 
-      - name: Build Final Production APK
+      - name: Build Pure Production APK
         run: |
           ./gradlew assembleDebug --no-daemon --stacktrace
 
