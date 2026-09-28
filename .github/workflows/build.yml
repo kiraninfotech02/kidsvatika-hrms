@@ -24,16 +24,50 @@ jobs:
         with:
           node-version: 20
 
-      - name: Build Web App & Clean Android Setup
+      - name: Patch Source Code & Unlock Full Vertical Scroll
         run: |
           set -e
-          echo "=== 1. Building Vite Production Bundle ==="
+          echo "=== 1. Deep Scanning and Patching React Source Code ==="
+          python3 -c '
+          import os, glob, re
+
+          # Find all TSX, JSX, HTML, and CSS source files
+          files = glob.glob("src/**/*.tsx", recursive=True) + \
+                  glob.glob("src/**/*.jsx", recursive=True) + \
+                  glob.glob("src/**/*.ts", recursive=True) + \
+                  glob.glob("src/**/*.js", recursive=True)
+
+          for fpath in files:
+              try:
+                  with open(fpath, "r", encoding="utf-8") as f:
+                      content = f.read()
+
+                  orig = content
+                  # Replace overflow-hidden on mockup frames with overflow-y-auto
+                  content = re.sub(r"\boverflow-hidden\b", "overflow-y-auto", content)
+                  content = re.sub(r"\bh-\[\d+px\]\b", "h-auto min-h-screen", content)
+                  content = re.sub(r"\bmax-h-\[\d+px\]\b", "max-h-none", content)
+                  content = re.sub(r"\bh-screen\b", "min-h-screen", content)
+
+                  # Strip outer phone frame borders
+                  content = re.sub(r"\bborder-\[\d+px\]\b", "border-0", content)
+                  content = re.sub(r"\brounded-\[\d+px\]\b", "rounded-none", content)
+
+                  if content != orig:
+                      with open(fpath, "w", encoding="utf-8") as f:
+                          f.write(content)
+                      print(f"Patched: {fpath}")
+              except Exception as e:
+                  pass
+          '
+
+          echo "=== 2. Building Vite Production Bundle ==="
           if [ -f "package.json" ]; then
             npm install --force || true
             npx vite build --base="./" || npm run build || true
           fi
 
-          echo "=== 2. Setting up Assets Directory ==="
+          echo "=== 3. Setting up Assets Directory ==="
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/java/com/kidsvatika/hrms
           mkdir -p app/src/main/res/values
@@ -50,65 +84,69 @@ jobs:
             sed -i 's|src="/|src="./|g' app/src/main/assets/index.html
             sed -i 's|href="/|href="./|g' app/src/main/assets/index.html
 
-            # Inject hardened CSS and dynamic JS isolating ONLY the mobile device view
+            # Inject Universal Touch-Scroll Engine & Element Purger
             python3 -c '
-          css = """
-          header, nav, [class*="Header"], [class*="Navbar"], [class*="tabs"], [class*="Tabs"],
-          button:has(svg), [class*="export"], [class*="Export"],
-          div[class*="QA Testing"], div[class*="Code Explorer"], div[class*="Sandbox"], div[class*="Architecture"] {
-              display: none !important;
-              visibility: hidden !important;
-              height: 0 !important;
-              overflow: hidden !important;
-          }
-          html, body {
-              width: 100vw !important;
-              height: 100vh !important;
+          js_engine = """
+          <style>
+            * {
+              -webkit-overflow-scrolling: touch !important;
+            }
+            html, body {
+              width: 100% !important;
+              height: auto !important;
+              min-height: 100vh !important;
+              overflow-x: hidden !important;
+              overflow-y: auto !important;
+              background-color: #0B1120 !important;
               margin: 0 !important;
               padding: 0 !important;
-              overflow: hidden !important;
-              background-color: #0F172A !important;
-          }
-          /* Expand actual phone frame to 100% fullscreen */
-          div[class*="device"], div[class*="emulator"], div[class*="phone"], div[class*="pixel"],
-          div[class*="mockup"], div[style*="border-radius: 40px"], div[style*="border-radius: 48px"] {
-              width: 100vw !important;
-              height: 100vh !important;
-              max-width: 100vw !important;
-              max-height: 100vh !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              border: none !important;
-              border-radius: 0 !important;
-              box-shadow: none !important;
-              position: fixed !important;
-              top: 0 !important;
-              left: 0 !important;
-              right: 0 !important;
-              bottom: 0 !important;
-              z-index: 9999999 !important;
-              background-color: #0F172A !important;
-          }
-          """
-          with open("app/src/main/assets/pure-mobile.css", "w") as f:
-              f.write(css)
-
-          js_injector = """
-          <link rel="stylesheet" href="./pure-mobile.css">
+            }
+          </style>
           <script>
             (function() {
-              function enforceMobileView() {
-                // Auto-click interactive emulator tab if not active
-                const buttons = Array.from(document.querySelectorAll("button"));
-                const emuBtn = buttons.find(b => b.textContent && (b.textContent.includes("Emulator") || b.textContent.includes("Device") || b.textContent.includes("Interactive")));
-                if (emuBtn && !emuBtn.classList.contains("active")) {
-                  emuBtn.click();
-                }
-                // Hide header containers completely
-                document.querySelectorAll("header, nav, [role=\"navigation\"]").forEach(el => el.style.display = "none");
+              function unlockScreen() {
+                // 1. Permanently remove the top testbed card ("Test the real-time check-in...")
+                document.querySelectorAll("div, p, span, h1, h2, h3").forEach(function(el) {
+                  var txt = el.innerText || "";
+                  if (txt.indexOf("Test the real-time check-in") !== -1 || txt.indexOf("Anti-Spoofing") !== -1) {
+                    var container = el.closest("div.border, div.rounded-xl, div.rounded-2xl, div[class*=\"p-\"]") || el.parentElement;
+                    if (container && container !== document.body) {
+                      container.style.display = "none";
+                    }
+                  }
+                });
+
+                // 2. Hide desktop headers, tabs, and export buttons
+                document.querySelectorAll("header, nav, [class*=\"header\"], [class*=\"Header\"], [role=\"navigation\"]").forEach(function(el) {
+                  el.style.display = "none";
+                });
+
+                // 3. Unlock vertical scroll on all containers
+                document.querySelectorAll("div, section, main, article").forEach(function(el) {
+                  var style = window.getComputedStyle(el);
+                  if (style.overflowY === "hidden" || style.overflow === "hidden") {
+                    el.style.setProperty("overflow-y", "auto", "important");
+                    el.style.setProperty("-webkit-overflow-scrolling", "touch", "important");
+                  }
+                  var h = parseInt(style.height);
+                  if (h > 450 && h < 1100 && el !== document.body && el !== document.documentElement) {
+                    el.style.setProperty("height", "auto", "important");
+                    el.style.setProperty("min-height", "100vh", "important");
+                  }
+                  if (style.borderRadius && parseInt(style.borderRadius) > 20) {
+                    el.style.setProperty("border-radius", "0px", "important");
+                    el.style.setProperty("border", "none", "important");
+                    el.style.setProperty("box-shadow", "none", "important");
+                  }
+                });
+
+                document.documentElement.style.setProperty("overflow-y", "auto", "important");
+                document.body.style.setProperty("overflow-y", "auto", "important");
               }
-              window.addEventListener("DOMContentLoaded", enforceMobileView);
-              setInterval(enforceMobileView, 300);
+
+              window.addEventListener("DOMContentLoaded", unlockScreen);
+              window.addEventListener("load", unlockScreen);
+              setInterval(unlockScreen, 300);
             })();
           </script>
           """
@@ -116,14 +154,14 @@ jobs:
           with open("app/src/main/assets/index.html", "r") as f:
               html = f.read()
 
-          if "pure-mobile.css" not in html:
-              html = html.replace("</head>", js_injector + "</head>")
+          if "unlockScreen" not in html:
+              html = html.replace("</head>", js_engine + "</head>")
               with open("app/src/main/assets/index.html", "w") as f:
                   f.write(html)
           '
           fi
 
-          echo "=== 3. Writing Pure Zero-Dependency MainActivity ==="
+          echo "=== 4. Setting Up Android WebView Activity ==="
           python3 -c '
           java_code = """package com.kidsvatika.hrms;
 
@@ -153,7 +191,10 @@ jobs:
                   getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
                   webView = new WebView(this);
-                  webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+                  webView.setVerticalScrollBarEnabled(true);
+                  webView.setHorizontalScrollBarEnabled(false);
+                  webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
+                  webView.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
                   setContentView(webView);
 
                   WebSettings ws = webView.getSettings();
@@ -165,11 +206,11 @@ jobs:
                   ws.setAllowFileAccessFromFileURLs(true);
                   ws.setAllowUniversalAccessFromFileURLs(true);
                   ws.setMediaPlaybackRequiresUserGesture(false);
-                  ws.setUseWideViewPort(true);
-                  ws.setLoadWithOverviewMode(true);
+                  ws.setUseWideViewPort(false);
+                  ws.setLoadWithOverviewMode(false);
                   ws.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-                  ws.setUserAgentString("Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+                  ws.setUserAgentString("Mozilla/5.0 (Linux; Android 9; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
 
                   webView.setWebViewClient(new WebViewClient());
 
@@ -213,13 +254,13 @@ jobs:
               f.write(java_code)
           '
 
-          echo "=== 4. Setting Themes and Manifest ==="
+          echo "=== 5. Setting Themes and Manifest ==="
           python3 -c '
           themes = """<resources>
               <style name="Theme.KidsVatikaHRMS" parent="android:Theme.Material.Light.NoActionBar">
                   <item name="android:windowNoTitle">true</item>
                   <item name="android:windowActionBar">false</item>
-                  <item name="android:statusBarColor">#0F172A</item>
+                  <item name="android:statusBarColor">#0B1120</item>
               </style>
           </resources>"""
           with open("app/src/main/res/values/themes.xml", "w") as f:
@@ -266,7 +307,7 @@ jobs:
               f.write(manifest)
           '
 
-          echo "=== 5. Writing Project Gradle Files ==="
+          echo "=== 6. Gradle Files Setup ==="
           python3 -c '
           gradle_props = """android.useAndroidX=true
           android.enableJetifier=true
