@@ -24,45 +24,83 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install Dependencies and Build Vite App
+      - name: Build Web App & Inject Mobile Fullscreen Mode
         run: |
           set -e
-          echo "=== 1. Building Vite Production Bundle with Relative Paths ==="
-          
-          # Force Vite to generate relative URLs for Android assets
-          export VITE_APP_BASE="./"
-          
+          echo "=== 1. Building Vite Production Bundle ==="
           if [ -f "package.json" ]; then
             npm install --force || npm install --legacy-peer-deps || true
-            
-            # Ensure base path is relative in vite build
             npx vite build --base="./" || npm run build || true
           fi
 
-          echo "=== 2. Preparing Android Assets Directory ==="
+          echo "=== 2. Setting up Assets Directory ==="
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/java/com/kidsvatika/hrms
           mkdir -p app/src/main/res/values
 
-          # Prioritize built production files from dist or build
           if [ -d "dist" ] && [ -f "dist/index.html" ]; then
-            echo "Copying compiled dist files..."
             cp -r dist/* app/src/main/assets/
           elif [ -d "build" ] && [ -f "build/index.html" ]; then
-            echo "Copying compiled build files..."
             cp -r build/* app/src/main/assets/
           else
-            echo "Fallback: Copying root web files..."
             cp -r ./* app/src/main/assets/ || true
           fi
 
-          # Fix absolute paths to relative paths inside index.html for Android WebView
+          # 3. Path sanitization for Android Asset loading
           if [ -f "app/src/main/assets/index.html" ]; then
             sed -i 's|src="/|src="./|g' app/src/main/assets/index.html
             sed -i 's|href="/|href="./|g' app/src/main/assets/index.html
+
+            # Inject CSS to hide laptop dashboard and force emulator to become full-screen native mobile view
+            cat << 'EOF' > app/src/main/assets/mobile-override.css
+            /* Hide top developer header, tabs, and sidebar tools */
+            header, nav, .header, [role="navigation"], 
+            button:has-text("Export"), 
+            div:has(> button:contains("Export")),
+            div[class*="QA Testing"],
+            div[class*="Code Explorer"],
+            div[class*="Sandbox"],
+            div[class*="Architecture"] {
+                display: none !important;
+            }
+
+            /* Make body fit perfectly to mobile viewport */
+            html, body {
+                width: 100vw !important;
+                height: 100vh !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: hidden !important;
+                background-color: #0F172A !important;
+                -webkit-user-select: none;
+                user-select: none;
+            }
+
+            /* Target the phone emulator frame and make it 100% full screen */
+            div[class*="device"], div[class*="emulator"], div[class*="phone"], div[class*="screen"],
+            div[class*="mockup"], div[class*="pixel"] {
+                width: 100vw !important;
+                height: 100vh !important;
+                max-width: 100vw !important;
+                max-height: 100vh !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                border: none !important;
+                border-radius: 0 !important;
+                box-shadow: none !important;
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                right: 0 !important;
+                bottom: 0 !important;
+                z-index: 999999 !important;
+            }
+            EOF
+
+            sed -i 's|</head>|<link rel="stylesheet" href="./mobile-override.css"></head>|' app/src/main/assets/index.html
           fi
 
-          echo "=== 3. Creating Production MainActivity with Web Console & Error Handling ==="
+          echo "=== 4. Creating Native-Feel WebView Activity ==="
           cat << 'EOF' > app/src/main/java/com/kidsvatika/hrms/MainActivity.java
           package com.kidsvatika.hrms;
 
@@ -70,13 +108,12 @@ jobs:
           import android.annotation.SuppressLint;
           import android.app.Activity;
           import android.os.Bundle;
-          import android.util.Log;
-          import android.webkit.ConsoleMessage;
+          import android.view.View;
+          import android.view.Window;
+          import android.view.WindowManager;
           import android.webkit.GeolocationPermissions;
           import android.webkit.PermissionRequest;
           import android.webkit.WebChromeClient;
-          import android.webkit.WebResourceError;
-          import android.webkit.WebResourceRequest;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
@@ -91,7 +128,12 @@ jobs:
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
 
+                  // Enable full screen mobile look
+                  requestWindowFeature(Window.FEATURE_NO_TITLE);
+                  getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+
                   webView = new WebView(this);
+                  webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
                   setContentView(webView);
 
                   WebSettings webSettings = webView.getSettings();
@@ -105,24 +147,26 @@ jobs:
                   webSettings.setMediaPlaybackRequiresUserGesture(false);
                   webSettings.setUseWideViewPort(true);
                   webSettings.setLoadWithOverviewMode(true);
-                  webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+                  webSettings.setSupportZoom(false);
+                  webSettings.setBuiltInZoomControls(false);
+                  webSettings.setDisplayZoomControls(false);
+
+                  // Force mobile user agent so app renders pure mobile UI
+                  webSettings.setUserAgentString("Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 KidsVatikaApp");
 
                   webView.setWebViewClient(new WebViewClient() {
                       @Override
-                      public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                          Log.e("KidsVatikaWebView", "Error loading page: " + error.toString());
+                      public void onPageFinished(WebView view, String url) {
+                          // Extra JS injection to click emulator tab or hide wrapper panels
+                          view.evaluateJavascript(
+                              "const tabs = Array.from(document.querySelectorAll('button'));" +
+                              "const emuTab = tabs.find(b => b.innerText.includes('Emulator') || b.innerText.includes('Device'));" +
+                              "if(emuTab) emuTab.click();", null
+                          );
                       }
                   });
 
                   webView.setWebChromeClient(new WebChromeClient() {
-                      @Override
-                      public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
-                          Log.d("KidsVatikaJS", consoleMessage.message() + " -- From line "
-                                  + consoleMessage.lineNumber() + " of "
-                                  + consoleMessage.sourceId());
-                          return true;
-                      }
-
                       @Override
                       public void onPermissionRequest(final PermissionRequest request) {
                           request.grant(request.getResources());
@@ -158,7 +202,7 @@ jobs:
           }
           EOF
 
-          echo "=== 4. Setting Themes and Manifest ==="
+          echo "=== 5. Setting Themes and Manifest ==="
           cat << 'EOF' > app/src/main/res/values/themes.xml
           <resources>
               <style name="Theme.KidsVatikaHRMS" parent="android:Theme.Material.Light.NoActionBar">
@@ -213,7 +257,7 @@ jobs:
           </manifest>
           EOF
 
-          echo "=== 5. Writing Project Gradle Files ==="
+          echo "=== 6. Project Gradle Configuration ==="
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
           android.enableJetifier=true
