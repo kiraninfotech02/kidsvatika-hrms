@@ -24,50 +24,45 @@ jobs:
         with:
           node-version: 20
 
-      - name: Patch Source Code & Unlock Full Vertical Scroll
+      - name: Extract Core Mobile App & Build Clean Assets
         run: |
           set -e
-          echo "=== 1. Deep Scanning and Patching React Source Code ==="
+          echo "=== 1. Patching App Component to Remove Shell ==="
           python3 -c '
           import os, glob, re
 
-          # Find all TSX, JSX, HTML, and CSS source files
-          files = glob.glob("src/**/*.tsx", recursive=True) + \
-                  glob.glob("src/**/*.jsx", recursive=True) + \
-                  glob.glob("src/**/*.ts", recursive=True) + \
-                  glob.glob("src/**/*.js", recursive=True)
-
+          # Find all source files
+          files = glob.glob("src/**/*.{tsx,jsx,ts,js}", recursive=True)
+          
+          # 1. Identify files containing the testbed text or tabs and clean them
           for fpath in files:
               try:
                   with open(fpath, "r", encoding="utf-8") as f:
-                      content = f.read()
+                      txt = f.read()
 
-                  orig = content
-                  # Replace overflow-hidden on mockup frames with overflow-y-auto
-                  content = re.sub(r"\boverflow-hidden\b", "overflow-y-auto", content)
-                  content = re.sub(r"\bh-\[\d+px\]\b", "h-auto min-h-screen", content)
-                  content = re.sub(r"\bmax-h-\[\d+px\]\b", "max-h-none", content)
-                  content = re.sub(r"\bh-screen\b", "min-h-screen", content)
+                  orig = txt
+                  # Remove outer phone mockup borders and fixed heights
+                  txt = re.sub(r"rounded-\[(?:40|48)px\]", "rounded-none", txt)
+                  txt = re.sub(r"border-\[(?:8|10|12)px\]", "border-0", txt)
+                  txt = re.sub(r"h-\[(?:700|750|800|844)px\]", "h-auto min-h-screen", txt)
+                  txt = re.sub(r"max-w-(?:sm|md|xs)", "max-w-none w-full", txt)
+                  txt = re.sub(r"overflow-hidden", "overflow-y-auto", txt)
 
-                  # Strip outer phone frame borders
-                  content = re.sub(r"\bborder-\[\d+px\]\b", "border-0", content)
-                  content = re.sub(r"\brounded-\[\d+px\]\b", "rounded-none", content)
-
-                  if content != orig:
+                  if txt != orig:
                       with open(fpath, "w", encoding="utf-8") as f:
-                          f.write(content)
-                      print(f"Patched: {fpath}")
+                          f.write(txt)
+                      print(f"Sanitized mockup styles in: {fpath}")
               except Exception as e:
                   pass
           '
 
-          echo "=== 2. Building Vite Production Bundle ==="
+          echo "=== 2. Building Clean Production Web Bundle ==="
           if [ -f "package.json" ]; then
             npm install --force || true
             npx vite build --base="./" || npm run build || true
           fi
 
-          echo "=== 3. Setting up Assets Directory ==="
+          echo "=== 3. Setting Up Android Assets ==="
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/java/com/kidsvatika/hrms
           mkdir -p app/src/main/res/values
@@ -80,73 +75,84 @@ jobs:
             cp -r ./* app/src/main/assets/ || true
           fi
 
+          # 4. Inject direct full-screen CSS & scroll enforcer
           if [ -f "app/src/main/assets/index.html" ]; then
             sed -i 's|src="/|src="./|g' app/src/main/assets/index.html
             sed -i 's|href="/|href="./|g' app/src/main/assets/index.html
 
-            # Inject Universal Touch-Scroll Engine & Element Purger
             python3 -c '
-          js_engine = """
-          <style>
-            * {
-              -webkit-overflow-scrolling: touch !important;
-            }
-            html, body {
+          css = """
+          /* Complete elimination of top web UI */
+          header, nav, [class*="Header"], [class*="Navbar"], [class*="tabs"], [class*="Tabs"],
+          div[class*="QA Testing"], div[class*="Code Explorer"], div[class*="Sandbox"], div[class*="Architecture"],
+          button:has(svg), a[download] {
+              display: none !important;
+          }
+
+          /* Force complete touch scroll on body */
+          html, body {
               width: 100% !important;
-              height: auto !important;
               min-height: 100vh !important;
-              overflow-x: hidden !important;
-              overflow-y: auto !important;
-              background-color: #0B1120 !important;
+              height: auto !important;
               margin: 0 !important;
               padding: 0 !important;
-            }
-          </style>
+              overflow-x: hidden !important;
+              overflow-y: auto !important;
+              -webkit-overflow-scrolling: touch !important;
+              background-color: #0B1120 !important;
+          }
+
+          /* Fullscreen native look for inner phone app */
+          div[class*="device"], div[class*="emulator"], div[class*="phone"], div[class*="pixel"],
+          div[class*="mockup"], main, section {
+              width: 100% !important;
+              max-width: 100% !important;
+              height: auto !important;
+              min-height: 100vh !important;
+              border: none !important;
+              border-radius: 0 !important;
+              box-shadow: none !important;
+              position: static !important;
+              overflow-y: visible !important;
+              background: #0B1120 !important;
+          }
+          """
+          with open("app/src/main/assets/pure-mobile.css", "w") as f:
+              f.write(css)
+
+          js_engine = """
+          <link rel="stylesheet" href="./pure-mobile.css">
           <script>
             (function() {
-              function unlockScreen() {
-                // 1. Permanently remove the top testbed card ("Test the real-time check-in...")
+              function cleanupDOM() {
+                // Permanently remove the top testbed card
                 document.querySelectorAll("div, p, span, h1, h2, h3").forEach(function(el) {
                   var txt = el.innerText || "";
-                  if (txt.indexOf("Test the real-time check-in") !== -1 || txt.indexOf("Anti-Spoofing") !== -1) {
-                    var container = el.closest("div.border, div.rounded-xl, div.rounded-2xl, div[class*=\"p-\"]") || el.parentElement;
-                    if (container && container !== document.body) {
-                      container.style.display = "none";
+                  if (txt.includes("Google Pixel 8 Android Testbed") || txt.includes("Test the real-time check-in") || txt.includes("Anti-Spoofing")) {
+                    var card = el.closest(".border, .rounded-xl, .rounded-2xl, div[class*=\"p-\"]");
+                    if (card && card !== document.body) {
+                      card.remove();
                     }
+                  }
+                  if (txt.includes("Kids Vatika Smart") && (el.tagName === "HEADER" || el.closest("header"))) {
+                    var hdr = el.closest("header");
+                    if (hdr) hdr.remove();
                   }
                 });
 
-                // 2. Hide desktop headers, tabs, and export buttons
-                document.querySelectorAll("header, nav, [class*=\"header\"], [class*=\"Header\"], [role=\"navigation\"]").forEach(function(el) {
-                  el.style.display = "none";
-                });
-
-                // 3. Unlock vertical scroll on all containers
-                document.querySelectorAll("div, section, main, article").forEach(function(el) {
+                // Unlock all scrollable layers
+                document.querySelectorAll("*").forEach(function(el) {
                   var style = window.getComputedStyle(el);
                   if (style.overflowY === "hidden" || style.overflow === "hidden") {
                     el.style.setProperty("overflow-y", "auto", "important");
                     el.style.setProperty("-webkit-overflow-scrolling", "touch", "important");
                   }
-                  var h = parseInt(style.height);
-                  if (h > 450 && h < 1100 && el !== document.body && el !== document.documentElement) {
-                    el.style.setProperty("height", "auto", "important");
-                    el.style.setProperty("min-height", "100vh", "important");
-                  }
-                  if (style.borderRadius && parseInt(style.borderRadius) > 20) {
-                    el.style.setProperty("border-radius", "0px", "important");
-                    el.style.setProperty("border", "none", "important");
-                    el.style.setProperty("box-shadow", "none", "important");
-                  }
                 });
-
-                document.documentElement.style.setProperty("overflow-y", "auto", "important");
-                document.body.style.setProperty("overflow-y", "auto", "important");
               }
 
-              window.addEventListener("DOMContentLoaded", unlockScreen);
-              window.addEventListener("load", unlockScreen);
-              setInterval(unlockScreen, 300);
+              window.addEventListener("DOMContentLoaded", cleanupDOM);
+              window.addEventListener("load", cleanupDOM);
+              setInterval(cleanupDOM, 250);
             })();
           </script>
           """
@@ -154,14 +160,14 @@ jobs:
           with open("app/src/main/assets/index.html", "r") as f:
               html = f.read()
 
-          if "unlockScreen" not in html:
+          if "pure-mobile.css" not in html:
               html = html.replace("</head>", js_engine + "</head>")
               with open("app/src/main/assets/index.html", "w") as f:
                   f.write(html)
           '
           fi
 
-          echo "=== 4. Setting Up Android WebView Activity ==="
+          echo "=== 5. Writing Pure Zero-Dependency MainActivity ==="
           python3 -c '
           java_code = """package com.kidsvatika.hrms;
 
@@ -191,9 +197,8 @@ jobs:
                   getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
                   webView = new WebView(this);
-                  webView.setVerticalScrollBarEnabled(true);
+                  webView.setVerticalScrollBarEnabled(false);
                   webView.setHorizontalScrollBarEnabled(false);
-                  webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
                   webView.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
                   setContentView(webView);
 
@@ -206,8 +211,8 @@ jobs:
                   ws.setAllowFileAccessFromFileURLs(true);
                   ws.setAllowUniversalAccessFromFileURLs(true);
                   ws.setMediaPlaybackRequiresUserGesture(false);
-                  ws.setUseWideViewPort(false);
-                  ws.setLoadWithOverviewMode(false);
+                  ws.setUseWideViewPort(true);
+                  ws.setLoadWithOverviewMode(true);
                   ws.setCacheMode(WebSettings.LOAD_DEFAULT);
 
                   ws.setUserAgentString("Mozilla/5.0 (Linux; Android 9; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
@@ -254,7 +259,7 @@ jobs:
               f.write(java_code)
           '
 
-          echo "=== 5. Setting Themes and Manifest ==="
+          echo "=== 6. Setting Themes and Manifest ==="
           python3 -c '
           themes = """<resources>
               <style name="Theme.KidsVatikaHRMS" parent="android:Theme.Material.Light.NoActionBar">
@@ -307,7 +312,7 @@ jobs:
               f.write(manifest)
           '
 
-          echo "=== 6. Gradle Files Setup ==="
+          echo "=== 7. Writing Project Gradle Files ==="
           python3 -c '
           gradle_props = """android.useAndroidX=true
           android.enableJetifier=true
@@ -371,7 +376,7 @@ jobs:
           gradle wrapper --gradle-version 8.7
           chmod +x ./gradlew
 
-      - name: Build Production Debug APK
+      - name: Build Final Production APK
         run: |
           ./gradlew assembleDebug --no-daemon --stacktrace
 
