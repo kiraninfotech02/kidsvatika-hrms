@@ -19,62 +19,68 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Node.js (To build web bundle if needed)
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
-      - name: Build Web Assets & Assemble Full Architecture
+      - name: Install Dependencies and Build Vite App
         run: |
           set -e
-          echo "=== 1. Building Web Assets if package.json exists ==="
+          echo "=== 1. Building Vite Production Bundle with Relative Paths ==="
+          
+          # Force Vite to generate relative URLs for Android assets
+          export VITE_APP_BASE="./"
+          
           if [ -f "package.json" ]; then
-            npm install --legacy-peer-deps || true
-            npm run build || true
+            npm install --force || npm install --legacy-peer-deps || true
+            
+            # Ensure base path is relative in vite build
+            npx vite build --base="./" || npm run build || true
           fi
 
-          echo "=== 2. Setting up Android App Structure ==="
+          echo "=== 2. Preparing Android Assets Directory ==="
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/java/com/kidsvatika/hrms
           mkdir -p app/src/main/res/values
 
-          # Copy web bundle to assets
-          if [ -d "dist" ]; then
+          # Prioritize built production files from dist or build
+          if [ -d "dist" ] && [ -f "dist/index.html" ]; then
+            echo "Copying compiled dist files..."
             cp -r dist/* app/src/main/assets/
-          elif [ -d "build" ]; then
+          elif [ -d "build" ] && [ -f "build/index.html" ]; then
+            echo "Copying compiled build files..."
             cp -r build/* app/src/main/assets/
-          elif [ -f "index.html" ]; then
+          else
+            echo "Fallback: Copying root web files..."
             cp -r ./* app/src/main/assets/ || true
           fi
 
-          # Ensure index.html is present in assets root
-          if [ ! -f "app/src/main/assets/index.html" ]; then
-            FIND_INDEX=$(find . -name "index.html" | grep -v "app/build" | head -n 1)
-            if [ -n "$FIND_INDEX" ]; then
-              INDEX_DIR=$(dirname "$FIND_INDEX")
-              cp -r "$INDEX_DIR"/* app/src/main/assets/
-            fi
+          # Fix absolute paths to relative paths inside index.html for Android WebView
+          if [ -f "app/src/main/assets/index.html" ]; then
+            sed -i 's|src="/|src="./|g' app/src/main/assets/index.html
+            sed -i 's|href="/|href="./|g' app/src/main/assets/index.html
           fi
 
-          echo "=== 3. Creating Production WebView Activity ==="
+          echo "=== 3. Creating Production MainActivity with Web Console & Error Handling ==="
           cat << 'EOF' > app/src/main/java/com/kidsvatika/hrms/MainActivity.java
           package com.kidsvatika.hrms;
 
           import android.Manifest;
           import android.annotation.SuppressLint;
           import android.app.Activity;
-          import android.content.pm.PackageManager;
-          import android.os.Build;
           import android.os.Bundle;
+          import android.util.Log;
+          import android.webkit.ConsoleMessage;
           import android.webkit.GeolocationPermissions;
           import android.webkit.PermissionRequest;
           import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceError;
+          import android.webkit.WebResourceRequest;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
-          import androidx.annotation.NonNull;
           import androidx.core.app.ActivityCompat;
-          import androidx.core.content.ContextCompat;
 
           public class MainActivity extends Activity {
               private WebView webView;
@@ -97,10 +103,26 @@ jobs:
                   webSettings.setAllowFileAccessFromFileURLs(true);
                   webSettings.setAllowUniversalAccessFromFileURLs(true);
                   webSettings.setMediaPlaybackRequiresUserGesture(false);
+                  webSettings.setUseWideViewPort(true);
+                  webSettings.setLoadWithOverviewMode(true);
                   webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-                  webView.setWebViewClient(new WebViewClient());
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                          Log.e("KidsVatikaWebView", "Error loading page: " + error.toString());
+                      }
+                  });
+
                   webView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
+                          Log.d("KidsVatikaJS", consoleMessage.message() + " -- From line "
+                                  + consoleMessage.lineNumber() + " of "
+                                  + consoleMessage.sourceId());
+                          return true;
+                      }
+
                       @Override
                       public void onPermissionRequest(final PermissionRequest request) {
                           request.grant(request.getResources());
@@ -112,11 +134,11 @@ jobs:
                       }
                   });
 
-                  requestRequiredPermissions();
+                  requestPermissions();
                   webView.loadUrl("file:///android_asset/index.html");
               }
 
-              private void requestRequiredPermissions() {
+              private void requestPermissions() {
                   String[] permissions = {
                       Manifest.permission.CAMERA,
                       Manifest.permission.ACCESS_FINE_LOCATION,
@@ -136,7 +158,7 @@ jobs:
           }
           EOF
 
-          echo "=== 4. Creating Crash-Proof Theme & Strings ==="
+          echo "=== 4. Setting Themes and Manifest ==="
           cat << 'EOF' > app/src/main/res/values/themes.xml
           <resources>
               <style name="Theme.KidsVatikaHRMS" parent="android:Theme.Material.Light.NoActionBar">
@@ -153,7 +175,6 @@ jobs:
           </resources>
           EOF
 
-          echo "=== 5. Writing Hardened Manifest with Hardware Acceleration ==="
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -192,7 +213,7 @@ jobs:
           </manifest>
           EOF
 
-          echo "=== 6. Configuring Root and App Build Files ==="
+          echo "=== 5. Writing Project Gradle Files ==="
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
           android.enableJetifier=true
