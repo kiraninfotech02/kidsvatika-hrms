@@ -50,15 +50,16 @@ jobs:
             sed -i 's|src="/|src="./|g' app/src/main/assets/index.html
             sed -i 's|href="/|href="./|g' app/src/main/assets/index.html
 
+            # Inject hardened CSS and dynamic JS isolating ONLY the mobile device view
             python3 -c '
           css = """
-          header, nav, .header, [role="navigation"],
-          button:has-text("Export"),
-          div[class*="QA Testing"],
-          div[class*="Code Explorer"],
-          div[class*="Sandbox"],
-          div[class*="Architecture"] {
+          header, nav, [class*="Header"], [class*="Navbar"], [class*="tabs"], [class*="Tabs"],
+          button:has(svg), [class*="export"], [class*="Export"],
+          div[class*="QA Testing"], div[class*="Code Explorer"], div[class*="Sandbox"], div[class*="Architecture"] {
               display: none !important;
+              visibility: hidden !important;
+              height: 0 !important;
+              overflow: hidden !important;
           }
           html, body {
               width: 100vw !important;
@@ -68,8 +69,9 @@ jobs:
               overflow: hidden !important;
               background-color: #0F172A !important;
           }
-          div[class*="device"], div[class*="emulator"], div[class*="phone"], div[class*="screen"],
-          div[class*="mockup"], div[class*="pixel"] {
+          /* Expand actual phone frame to 100% fullscreen */
+          div[class*="device"], div[class*="emulator"], div[class*="phone"], div[class*="pixel"],
+          div[class*="mockup"], div[style*="border-radius: 40px"], div[style*="border-radius: 48px"] {
               width: 100vw !important;
               height: 100vh !important;
               max-width: 100vw !important;
@@ -84,19 +86,40 @@ jobs:
               left: 0 !important;
               right: 0 !important;
               bottom: 0 !important;
-              z-index: 999999 !important;
+              z-index: 9999999 !important;
+              background-color: #0F172A !important;
           }
           """
-          with open("app/src/main/assets/mobile-override.css", "w") as f:
+          with open("app/src/main/assets/pure-mobile.css", "w") as f:
               f.write(css)
 
-          with open("app/src/main/assets/index.html", "r") as f:
-              content = f.read()
+          js_injector = """
+          <link rel="stylesheet" href="./pure-mobile.css">
+          <script>
+            (function() {
+              function enforceMobileView() {
+                // Auto-click interactive emulator tab if not active
+                const buttons = Array.from(document.querySelectorAll("button"));
+                const emuBtn = buttons.find(b => b.textContent && (b.textContent.includes("Emulator") || b.textContent.includes("Device") || b.textContent.includes("Interactive")));
+                if (emuBtn && !emuBtn.classList.contains("active")) {
+                  emuBtn.click();
+                }
+                // Hide header containers completely
+                document.querySelectorAll("header, nav, [role=\"navigation\"]").forEach(el => el.style.display = "none");
+              }
+              window.addEventListener("DOMContentLoaded", enforceMobileView);
+              setInterval(enforceMobileView, 300);
+            })();
+          </script>
+          """
 
-          if "mobile-override.css" not in content:
-              content = content.replace("</head>", "<link rel=\"stylesheet\" href=\"./mobile-override.css\"></head>")
+          with open("app/src/main/assets/index.html", "r") as f:
+              html = f.read()
+
+          if "pure-mobile.css" not in html:
+              html = html.replace("</head>", js_injector + "</head>")
               with open("app/src/main/assets/index.html", "w") as f:
-                  f.write(content)
+                  f.write(html)
           '
           fi
 
@@ -133,30 +156,22 @@ jobs:
                   webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
                   setContentView(webView);
 
-                  WebSettings webSettings = webView.getSettings();
-                  webSettings.setJavaScriptEnabled(true);
-                  webSettings.setDomStorageEnabled(true);
-                  webSettings.setDatabaseEnabled(true);
-                  webSettings.setAllowFileAccess(true);
-                  webSettings.setAllowContentAccess(true);
-                  webSettings.setAllowFileAccessFromFileURLs(true);
-                  webSettings.setAllowUniversalAccessFromFileURLs(true);
-                  webSettings.setMediaPlaybackRequiresUserGesture(false);
-                  webSettings.setUseWideViewPort(true);
-                  webSettings.setLoadWithOverviewMode(true);
+                  WebSettings ws = webView.getSettings();
+                  ws.setJavaScriptEnabled(true);
+                  ws.setDomStorageEnabled(true);
+                  ws.setDatabaseEnabled(true);
+                  ws.setAllowFileAccess(true);
+                  ws.setAllowContentAccess(true);
+                  ws.setAllowFileAccessFromFileURLs(true);
+                  ws.setAllowUniversalAccessFromFileURLs(true);
+                  ws.setMediaPlaybackRequiresUserGesture(false);
+                  ws.setUseWideViewPort(true);
+                  ws.setLoadWithOverviewMode(true);
+                  ws.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-                  webSettings.setUserAgentString("Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 KidsVatikaApp");
+                  ws.setUserAgentString("Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
 
-                  webView.setWebViewClient(new WebViewClient() {
-                      @Override
-                      public void onPageFinished(WebView view, String url) {
-                          view.evaluateJavascript(
-                              "const tabs = Array.from(document.querySelectorAll(\\\"button\\\"));" +
-                              "const emuTab = tabs.find(b => b.innerText.includes(\\\"Emulator\\\") || b.innerText.includes(\\\"Device\\\"));" +
-                              "if(emuTab) emuTab.click();", null
-                          );
-                      }
-                  });
+                  webView.setWebViewClient(new WebViewClient());
 
                   webView.setWebChromeClient(new WebChromeClient() {
                       @Override
