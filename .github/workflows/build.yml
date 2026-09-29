@@ -19,153 +19,37 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Locate True Native Project or Re-engineer Mobile Frame
+      - name: Setup Android Project & Robust WebView
         run: |
           set -e
-          echo "=== 1. Searching for Native Kotlin Source Base ==="
-          
-          # Check if there is an exported zip containing native Kotlin app
-          ZIP_FILE=$(find . -name "*.zip" | head -n 1 || true)
-          if [ -n "$ZIP_FILE" ]; then
-            echo "Found zip file: $ZIP_FILE. Extracting..."
-            unzip -q -o "$ZIP_FILE" -d extracted_app || true
-          fi
-
-          echo "=== 2. Rebuilding Web Assets with Strict Fullscreen Overwrite ==="
-          if [ -f "package.json" ]; then
-            npm install --force || true
-            npx vite build --base="./" || npm run build || true
-          fi
-
-          mkdir -p app/src/main/assets
           mkdir -p app/src/main/java/com/kidsvatika/hrms
           mkdir -p app/src/main/res/values
 
-          if [ -d "dist" ] && [ -f "dist/index.html" ]; then
-            cp -r dist/* app/src/main/assets/
-          elif [ -d "build" ] && [ -f "build/index.html" ]; then
-            cp -r build/* app/src/main/assets/
-          else
-            cp -r ./* app/src/main/assets/ || true
-          fi
-
-          # Fix Asset URLs
-          if [ -f "app/src/main/assets/index.html" ]; then
-            sed -i 's|src="/|src="./|g' app/src/main/assets/index.html
-            sed -i 's|href="/|href="./|g' app/src/main/assets/index.html
-          fi
-
-          # 3. Create a Custom Fullscreen HTML Wrapper that embeds ONLY the phone content and unlocks touch scroll
-          python3 -c '
-          import os
-
-          # Read original index
-          with open("app/src/main/assets/index.html", "r", encoding="utf-8") as f:
-              orig_html = f.read()
-
-          # Inject CSS directly into the HTML head so it CANNOT be overridden by React
-          critical_css = """
-          <style id="android-fullscreen-lock">
-            /* Nuclear removal of top elements */
-            header, nav, [class*="Header"], [class*="Navbar"], [class*="tabs"], [class*="Tabs"],
-            div[class*="QA Testing"], div[class*="Code Explorer"], div[class*="Sandbox"], div[class*="Architecture"],
-            button:has(svg), a[download] {
-              display: none !important;
-              height: 0px !important;
-              visibility: hidden !important;
-            }
-
-            html, body {
-              width: 100vw !important;
-              min-height: 100vh !important;
-              height: auto !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              overflow-x: hidden !important;
-              overflow-y: scroll !important;
-              -webkit-overflow-scrolling: touch !important;
-              background-color: #0F172A !important;
-            }
-
-            /* Strip the phone mockup container completely so it expands full display */
-            div[class*="rounded-[40px]"], div[class*="rounded-[48px]"],
-            div[class*="border-[8px]"], div[class*="border-[12px]"],
-            div[class*="border-slate-800"], div[class*="max-w-sm"],
-            div[style*="border-radius: 40px"], div[style*="border-radius: 48px"] {
-              border: none !important;
-              border-radius: 0px !important;
-              box-shadow: none !important;
-              width: 100vw !important;
-              max-width: 100vw !important;
-              min-height: 100vh !important;
-              height: auto !important;
-              padding: 0px !important;
-              margin: 0px !important;
-              overflow-y: visible !important;
-              background-color: #0F172A !important;
-            }
-
-            /* Unblock scrolling on any internal scrolling container */
-            div[class*="overflow-hidden"], div[class*="overflow-y-auto"], main, section {
-              overflow-y: visible !important;
-              height: auto !important;
-              min-height: 100vh !important;
-            }
-          </style>
-          <script id="android-touch-unlocker">
-            // Force touch event handling & remove testbed badge
-            function purgeBadges() {
-              var all = document.querySelectorAll("div, p, span");
-              for (var i = 0; i < all.length; i++) {
-                var el = all[i];
-                if (el.innerText && (el.innerText.indexOf("Test the real-time check-in") !== -1 || el.innerText.indexOf("Google Pixel 8 Android Testbed") !== -1)) {
-                  var p = el.parentElement;
-                  while (p && p !== document.body && !p.classList.contains("border") && !p.classList.contains("rounded-2xl")) {
-                    p = p.parentElement;
-                  }
-                  if (p && p !== document.body) {
-                    p.style.display = "none";
-                  }
-                }
-              }
-            }
-            window.addEventListener("DOMContentLoaded", purgeBadges);
-            setInterval(purgeBadges, 200);
-          </script>
-          """
-
-          if "android-fullscreen-lock" not in orig_html:
-              orig_html = orig_html.replace("</head>", critical_css + "</head>")
-              with open("app/src/main/assets/index.html", "w", encoding="utf-8") as f:
-                  f.write(orig_html)
-          '
-
-          echo "=== 4. Native MainActivity with Direct Touch Delegation ==="
+          echo "=== 1. Writing High-Performance MainActivity ==="
           python3 -c '
           java_code = """package com.kidsvatika.hrms;
 
+          import android.Manifest;
           import android.annotation.SuppressLint;
           import android.app.Activity;
           import android.os.Build;
           import android.os.Bundle;
-          import android.view.MotionEvent;
           import android.view.View;
           import android.view.Window;
           import android.view.WindowManager;
           import android.webkit.GeolocationPermissions;
           import android.webkit.PermissionRequest;
           import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceError;
+          import android.webkit.WebResourceRequest;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
+          import android.widget.Toast;
 
           public class MainActivity extends Activity {
               private WebView webView;
+              private static final String APP_URL = "https://kids-vatika-hrms-android-app-kotlin-studio-342025676799.asia-southeast1.run.app";
 
               @SuppressLint("SetJavaScriptEnabled")
               @Override
@@ -176,28 +60,10 @@ jobs:
                   getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
                   webView = new WebView(this);
-                  webView.setFocusable(true);
-                  webView.setFocusableInTouchMode(true);
-                  webView.setVerticalScrollBarEnabled(false);
+                  webView.setVerticalScrollBarEnabled(true);
                   webView.setHorizontalScrollBarEnabled(false);
-                  webView.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
-
-                  // Fix touch drag on older Android 9 devices
-                  webView.setOnTouchListener(new View.OnTouchListener() {
-                      @Override
-                      public boolean onTouch(View v, MotionEvent event) {
-                          switch (event.getAction()) {
-                              case MotionEvent.ACTION_DOWN:
-                              case MotionEvent.ACTION_UP:
-                                  if (!v.hasFocus()) {
-                                      v.requestFocus();
-                                  }
-                                  break;
-                          }
-                          return false;
-                      }
-                  });
-
+                  webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
+                  webView.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
                   setContentView(webView);
 
                   WebSettings ws = webView.getSettings();
@@ -206,16 +72,42 @@ jobs:
                   ws.setDatabaseEnabled(true);
                   ws.setAllowFileAccess(true);
                   ws.setAllowContentAccess(true);
-                  ws.setAllowFileAccessFromFileURLs(true);
-                  ws.setAllowUniversalAccessFromFileURLs(true);
                   ws.setMediaPlaybackRequiresUserGesture(false);
                   ws.setUseWideViewPort(true);
                   ws.setLoadWithOverviewMode(true);
                   ws.setCacheMode(WebSettings.LOAD_DEFAULT);
+                  ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-                  ws.setUserAgentString("Mozilla/5.0 (Linux; Android 9; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+                  // Standard Mobile User-Agent
+                  ws.setUserAgentString("Mozilla/5.0 (Linux; Android 9; Pixel 8 Build/PPR1.180610.011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 KidsVatikaApp");
 
-                  webView.setWebViewClient(new WebViewClient());
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                          super.onReceivedError(view, request, error);
+                      }
+
+                      @Override
+                      public void onPageFinished(WebView view, String url) {
+                          // Inject CSS directly via evaluateJavascript to strip laptop wrapper and unlock full scroll
+                          String script = "(function() {" +
+                                  "var css = 'header, nav, [class*=\"header\"], [class*=\"Header\"], div[class*=\"QA Testing\"], div[class*=\"Code Explorer\"], div[class*=\"Sandbox\"], div[class*=\"Architecture\"], a[download] { display: none !important; } ' +" +
+                                  "'html, body { width: 100% !important; min-height: 100% !important; height: auto !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch !important; background-color: #0B1120 !important; } ' +" +
+                                  "'div[class*=\"rounded-[\"], div[class*=\"border-[\"], div[style*=\"border-radius\"] { border: none !important; border-radius: 0px !important; box-shadow: none !important; width: 100% !important; max-width: 100% !important; height: auto !important; min-height: 100vh !important; } ' +" +
+                                  "'div[class*=\"overflow-hidden\"] { overflow-y: visible !important; height: auto !important; }';" +
+                                  "var s = document.createElement(\"style\");" +
+                                  "s.innerHTML = css;" +
+                                  "document.head.appendChild(s);" +
+                                  "document.querySelectorAll(\"div, p, span\").forEach(function(el) {" +
+                                  "  if (el.innerText && (el.innerText.includes(\"Test the real-time check-in\") || el.innerText.includes(\"Google Pixel 8 Android Testbed\"))) {" +
+                                  "    var p = el.closest(\".border, .rounded-xl, .rounded-2xl, div[class*=\\\"p-\\\"]\");" +
+                                  "    if (p) p.style.display = \"none\";" +
+                                  "  }" +
+                                  "});" +
+                                  "})();";
+                          view.evaluateJavascript(script, null);
+                      }
+                  });
 
                   webView.setWebChromeClient(new WebChromeClient() {
                       @Override
@@ -233,14 +125,14 @@ jobs:
 
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                       String[] permissions = {
-                          "android.permission.CAMERA",
-                          "android.permission.ACCESS_FINE_LOCATION",
-                          "android.permission.ACCESS_COARSE_LOCATION"
+                          Manifest.permission.CAMERA,
+                          Manifest.permission.ACCESS_FINE_LOCATION,
+                          Manifest.permission.ACCESS_COARSE_LOCATION
                       };
                       requestPermissions(permissions, 101);
                   }
 
-                  webView.loadUrl("file:///android_asset/index.html");
+                  webView.loadUrl(APP_URL);
               }
 
               @Override
@@ -257,13 +149,13 @@ jobs:
               f.write(java_code)
           '
 
-          echo "=== 5. Hardened Manifest & Styles ==="
+          echo "=== 2. Creating Themes and Manifest ==="
           python3 -c '
           themes = """<resources>
               <style name="Theme.KidsVatikaHRMS" parent="android:Theme.Material.Light.NoActionBar">
                   <item name="android:windowNoTitle">true</item>
                   <item name="android:windowActionBar">false</item>
-                  <item name="android:statusBarColor">#0F172A</item>
+                  <item name="android:statusBarColor">#0B1120</item>
               </style>
           </resources>"""
           with open("app/src/main/res/values/themes.xml", "w") as f:
@@ -310,7 +202,7 @@ jobs:
               f.write(manifest)
           '
 
-          echo "=== 6. Gradle Project Scripts ==="
+          echo "=== 3. Writing Gradle Settings ==="
           python3 -c '
           gradle_props = """android.useAndroidX=true
           android.enableJetifier=true
@@ -374,7 +266,7 @@ jobs:
           gradle wrapper --gradle-version 8.7
           chmod +x ./gradlew
 
-      - name: Build Pure Production APK
+      - name: Build Bullet-Proof APK
         run: |
           ./gradlew assembleDebug --no-daemon --stacktrace
 
